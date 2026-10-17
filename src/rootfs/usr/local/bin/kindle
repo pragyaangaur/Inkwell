@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs a command (or a shell) in the Kindle's own root filesystem, reached
+# through PID 1's root since this Alpine system lives in a chroot.
+[ $# -eq 0 ] && set -- /bin/sh
+exec chroot /proc/1/root /bin/sh -c 'PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin; export PATH; exec "$@"' kindle "$@"

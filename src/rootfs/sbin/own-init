@@ -1,0 +1,90 @@
+#!/bin/sh
+# own-init: brings up our own system once boot.sh has mounted it. Starts USB
+# networking, Wi-Fi and SSH, then keeps the home screen running. Its exit code
+# tells boot.sh what to do next: 10 stock Kindle UI, 11 reboot, 12 power off,
+# 13 the home screen keeps crashing (boot.sh then leaves the next boot stock).
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
+cd /
+
+mountpoint -q /tmp || mount -t tmpfs -o mode=1777 tmpfs /tmp
+mountpoint -q /run || mount -t tmpfs -o mode=755 tmpfs /run
+mkdir -p /var/log /run/own
+exec >>/var/log/own.log 2>&1
+echo "=== $(date) own-init"
+hostname -F /etc/hostname
+
+# The SSH key and the time zone live on the userstore, next to alpine.img, so
+# one image works on every Kindle and its owner can change them over USB.
+U=/mnt/us/linux
+if [ -s $U/authorized_keys ]; then
+    mkdir -p /root/.ssh && chmod 700 /root/.ssh
+    tr -d '\r' < $U/authorized_keys > /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+fi
+if [ -s $U/timezone ]; then
+    zone=$(head -n 1 $U/timezone | tr -d ' \r')
+    if [ -f "/usr/share/zoneinfo/$zone" ] && [ "$zone" != "$(cat /etc/timezone 2>/dev/null)" ]; then
+        cp "/usr/share/zoneinfo/$zone" /etc/localtime && echo "$zone" > /etc/timezone
+    fi
+fi
+if [ ! -f /etc/.apk-registered ]; then
+    apk add --no-network /root/pkgs/*.apk && touch /etc/.apk-registered
+fi
+ifconfig lo 127.0.0.1 up
+[ -s /mnt/us/linux/light ] && cat /mnt/us/linux/light > /sys/class/backlight/max77696-bl/brightness
+
+# Networking comes up in the background so the home screen appears first.
+(
+    # USB: the Kindle is 192.168.15.244 and hands the computer an address.
+    if ifconfig usb0 192.168.15.244 netmask 255.255.255.0 up; then
+        touch /run/udhcpd.leases
+        udhcpd /etc/own/udhcpd.conf
+    fi
+    dropbear -R -s -p 22 -p 2222 -P /run/dropbear.pid
+
+    # Wi-Fi: wpa_supplicant always runs so the Wi-Fi app can scan and join.
+    # It saves joined networks back to wifi.conf.
+    WIFI=/mnt/us/linux/wifi.conf
+    if ifconfig wlan0 up 2>/dev/null; then
+        [ -f $WIFI ] || printf 'ctrl_interface=/run/wpa_supplicant\nupdate_config=1\n' > $WIFI
+        grep -q '^ctrl_interface=' $WIFI || sed -i '1i ctrl_interface=/run/wpa_supplicant' $WIFI
+        grep -q '^update_config=' $WIFI || sed -i '1a update_config=1' $WIFI
+        wpa_supplicant -B -i wlan0 -D nl80211 -c $WIFI -P /run/wpa_supplicant.pid
+        [ -f /mnt/us/linux/wifi.off ] && wpa_cli -p /run/wpa_supplicant -i wlan0 disconnect >/dev/null
+        udhcpc -i wlan0 -b -S -p /run/udhcpc.wlan0.pid
+    fi
+) &
+
+# Once the home screen has stayed up: re-arm own Linux as the default boot,
+# and let the CPU slow down when idle. Amazon's boot pins it at full speed
+# and only relaxes it when its own home screen loads, which never happens here.
+(
+    sleep 20
+    echo ondemand > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+    pidof home >/dev/null && [ -f /mnt/us/linux/BOOT_OWN.trying ] &&
+        mv /mnt/us/linux/BOOT_OWN.trying /mnt/us/linux/BOOT_OWN && sync
+) &
+
+crashes=0
+while :; do
+    started=$(date +%s)
+    home
+    rc=$?
+    echo "home exited $rc"
+    case $rc in 10 | 11 | 12) break ;; esac
+    [ $(($(date +%s) - started)) -lt 30 ] && crashes=$((crashes + 1)) || crashes=0
+    if [ $crashes -ge 5 ]; then
+        echo "home keeps crashing, handing back to the Kindle UI"
+        rc=13
+        break
+    fi
+    sleep 1
+done
+
+splash "$(case $rc in 12) echo "powered off" ;; 10) echo "off to the Kindle UI" ;; *) echo "restarting" ;; esac)"
+for f in /run/dropbear.pid /run/wpa_supplicant.pid /run/udhcpc.wlan0.pid; do
+    [ -f $f ] && kill "$(cat $f)" 2>/dev/null
+done
+killall udhcpd 2>/dev/null
+sync
+exit $rc
