@@ -1,0 +1,9 @@
+# Inkwell's Wi-Fi app writes this file for you. To set a network by hand
+# instead, copy this to wifi.conf in the linux folder on the Kindle and fill
+# in your network. Inkwell joins it at boot.
+ctrl_interface=/run/wpa_supplicant
+update_config=1
+network={
+    ssid="Your network name"
+    psk="Your password"
+}
