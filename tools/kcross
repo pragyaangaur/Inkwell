@@ -1,0 +1,23 @@
+#!/bin/sh
+# A cross compiler for CMake builds: armv7 hard-float, musl, libc++, all
+# static. Invoked as kcross-cc or kcross-c++. Compiles when asked to (-c, -E,
+# -S), otherwise links a static binary with compiler-rt and libunwind.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SYS="$ROOT/downloads/sysroot"
+RT="$SYS/usr/lib/llvm22/lib/clang/22/lib/armv7-alpine-linux-musleabihf"
+TGT="--target=armv7-alpine-linux-musleabihf"
+ARCH="-march=armv7-a -mfpu=neon -mfloat-abi=hard"
+DRV=clang
+case "$(basename "$0")" in *++) DRV=clang++ ;; esac
+for a in "$@"; do
+    case "$a" in -c|-E|-S|-M|-MM)
+        if [ $DRV = clang++ ]; then
+            exec clang++ $TGT $ARCH "--sysroot=$SYS" -nostdinc++ -isystem "$SYS/usr/include/c++/v1" -isystem "$SYS/usr/include" "$@"
+        fi
+        exec clang $TGT $ARCH "--sysroot=$SYS" -isystem "$SYS/usr/include" "$@" ;;
+    esac
+done
+exec clang $TGT $ARCH "--sysroot=$SYS" -fuse-ld=lld -static -nostdlib -L"$SYS/usr/lib" \
+    "$SYS/usr/lib/crt1.o" "$SYS/usr/lib/crti.o" "$RT/clang_rt.crtbegin-armhf.o" \
+    "$@" -Wl,--start-group -lc++ -lc++abi -lunwind -lc "$RT/libclang_rt.builtins-armhf.a" -Wl,--end-group \
+    "$RT/clang_rt.crtend-armhf.o" "$SYS/usr/lib/crtn.o"

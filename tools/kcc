@@ -1,0 +1,9 @@
+#!/bin/sh
+# Cross-compiles C for the Kindle (armv7 hard-float, musl) into one static binary.
+# Usage: tools/kcc -o out/prog src/prog.c [more .c files and flags]
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SYS="$ROOT/downloads/sysroot"
+RT="$SYS/usr/lib/llvm22/lib/clang/22/lib/armv7-alpine-linux-musleabihf/libclang_rt.builtins-armhf.a"
+exec clang --target=armv7-alpine-linux-musleabihf -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard \
+    --sysroot="$SYS" -isystem "$SYS/usr/include" -fuse-ld=lld -static -nostdlib -O2 -Wall \
+    "$SYS/usr/lib/crt1.o" "$SYS/usr/lib/crti.o" "$@" "$SYS/usr/lib/libc.a" "$RT" "$SYS/usr/lib/crtn.o"
