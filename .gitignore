@@ -1,0 +1,21 @@
+# Downloads, build output and the release
+downloads/
+out/
+dist/
+
+# SSH keys made by ssh.sh never leave this machine
+keys/
+
+# Copies the build makes, and stock-mode leftovers
+kindle/linux/*
+!kindle/linux/wifi.conf.example
+kindle/kapps/
+kindle/documents/Minecraft.sh
+kindle/documents/TriKing.sh
+
+# Notes for the author's own tools, and retired code
+AGENTS.md
+HANDOFF.md
+attic/
+inkwell-screens.png
+.DS_Store
