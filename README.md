@@ -6,10 +6,17 @@ It has a chatbot called Quill that runs a language model on the Kindle itself wi
 
 <p align="center"><img src="docs/images/home.png" width="380" alt="The Inkwell home screen with a serif clock, nine app icons and a frontlight slider"></p>
 
-| Quill | Doom | Minecraft | TriKing |
-| :---: | :---: | :---: | :---: |
-| <img src="docs/images/quill.png" width="200" alt="Quill answering a question about asteroids"> | <img src="docs/images/doom.png" width="200" alt="Doom's main menu with an on-screen d-pad and Fire button"> | <img src="docs/images/minecraft.png" width="200" alt="Minecraft hills and trees dithered for e-ink, with a control pad"> | <img src="docs/images/triking.png" width="200" alt="TriKing, a falling-block game with three-cell pieces"> |
-| An AI chatbot that runs offline | The shareware episode with touch controls | rd-132211, dithered for e-ink | Three-cell pieces, tap and flick to play |
+These clips are from a real Kindle Paperwhite 3. Some are sped up, and each caption says by how much.
+
+| Quill | Doom | Minecraft |
+| :---: | :---: | :---: |
+| <img src="docs/clips/quill.gif" width="260" alt="Quill writing an answer to who are you, word by word"> | <img src="docs/clips/doom.gif" width="260" alt="Doom being played with the on-screen d-pad and Fire button"> | <img src="docs/clips/minecraft.gif" width="260" alt="Walking and building in Minecraft on the e-ink screen"> |
+| An AI chatbot that runs offline (4x speed) | The shareware episode with touch controls (1.25x) | rd-132211, dithered for e-ink (1.15x) |
+
+| Waking up | Browser | Sketch |
+| :---: | :---: | :---: |
+| <img src="docs/clips/wake.gif" width="260" alt="The Kindle waking from the night-sky sleep screen to the home screen"> | <img src="docs/clips/browser.gif" width="260" alt="Turning the pages of a GitHub profile in the browser"> | <img src="docs/clips/sketch.gif" width="260" alt="Drawing a figure with a finger and saving it"> |
+| From the sleep screen to home (real time) | GitHub, in pages you turn (1.5x) | Drawing with a finger (3x) |
 
 ## What is on it
 
@@ -25,9 +32,9 @@ It has a chatbot called Quill that runs a language model on the Kindle itself wi
 
 The home screen also has a clock, the date, the battery and a frontlight slider. The Kindle sleeps after 15 minutes on the home screen or when you press the power button there, and it shows a night sky while it sleeps.
 
-| Sleep screen | Browser | Notes | Sketch | Settings |
+| Quill | TriKing | Sleep screen | Notes | Settings |
 | :---: | :---: | :---: | :---: | :---: |
-| <img src="docs/images/sleep.png" width="150" alt="A crescent moon over hills with the words Inkwell is asleep"> | <img src="docs/images/browser.png" width="150" alt="Bing search results laid out as a page"> | <img src="docs/images/notes.png" width="150" alt="A note being typed with the keyboard"> | <img src="docs/images/sketch.png" width="150" alt="A triangle drawn on the sketchpad"> | <img src="docs/images/settings.png" width="150" alt="Settings with Restart, Power off and device details"> |
+| <img src="docs/images/quill.png" width="150" alt="Quill answering a question about asteroids"> | <img src="docs/images/triking.png" width="150" alt="TriKing, a falling-block game with three-cell pieces"> | <img src="docs/images/sleep.png" width="150" alt="A crescent moon over hills with the words Inkwell is asleep"> | <img src="docs/images/notes.png" width="150" alt="A note being typed with the keyboard"> | <img src="docs/images/settings.png" width="150" alt="Settings with Restart, Power off and device details"> |
 
 ## Install
 
