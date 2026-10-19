@@ -13,8 +13,10 @@ SIZE="${SIZE:-1G}"
 # which a "timezone" file on the Kindle overrides at boot.
 for E2 in /opt/homebrew/opt/e2fsprogs/sbin /usr/local/opt/e2fsprogs/sbin /usr/sbin /sbin; do [ -x "$E2/mke2fs" ] && break; done
 TZ_NAME="${TZ_NAME:-UTC}"
-MIRROR=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/armv7
-PKGS="dropbear dropbear-scp busybox-extras wpa_supplicant tzdata curl"
+MIRROR=https://dl-cdn.alpinelinux.org/alpine/v3.24
+# mupdf-tools renders PDF and EPUB pages for Books and arXiv, and python3 runs
+# the code Quill writes in the terminal.
+PKGS="dropbear dropbear-scp dropbear-dbclient busybox-extras wpa_supplicant tzdata curl mupdf-tools python3 python3-pyc"
 
 ./build-ui.sh
 ./build-doom.sh >/dev/null
@@ -27,8 +29,9 @@ tar -xpzf "$A"/alpine-minirootfs-3.24.2-armv7.tar.gz -C "$S"
 # Unpack the packages directly so everything works on first boot. own-init
 # registers them with apk from /root/pkgs the first time it runs.
 mkdir -p "$S/root/pkgs"
-for p in $(python3 tools/apkdeps.py downloads/APKINDEX.main $PKGS); do
-    [ -f "$A/$p.apk" ] || curl -sf -o "$A/$p.apk" "$MIRROR/$p.apk"
+for rp in $(python3 tools/apkdeps.py downloads/APKINDEX.main,downloads/APKINDEX.community $PKGS); do
+    p=${rp#*/}
+    [ -f "$A/$p.apk" ] || curl -sf -o "$A/$p.apk" "$MIRROR/${rp%%/*}/armv7/$p.apk"
     cp "$A/$p.apk" "$S/root/pkgs/"
     tar -xpzf "$A/$p.apk" -C "$S" --exclude '.SIGN*' --exclude '.PKGINFO' --exclude '.pre-*' --exclude '.post-*' --exclude '.trigger'
 done
@@ -46,7 +49,7 @@ fi
 chmod 700 "$S/root" "$S/root/.ssh"
 chmod 1777 "$S/tmp"
 cp fonts/*.ttf "$S/usr/share/fonts/inkwell/"
-for p in home splash wifi settings notes sketch browser term chess doom quill inkllm tap; do cp out/$p "$S/usr/local/bin/"; done
+for p in home splash wifi settings notes sketch browser term chess books arxiv doom quill quill-code inkllm tap; do cp out/$p "$S/usr/local/bin/"; done
 cp out/rd-kindle out/triking "$S/usr/local/games/"
 mkdir -p "$S/usr/local/share/doom"
 cp downloads/doom/doom1.wad "$S/usr/local/share/doom/" # the shareware episode, free to share

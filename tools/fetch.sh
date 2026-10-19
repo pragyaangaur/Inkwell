@@ -20,17 +20,20 @@ get() { # url file [sha256]
 
 get $ALPINE/releases/armv7/alpine-minirootfs-3.24.2-armv7.tar.gz $D/alpine/alpine-minirootfs-3.24.2-armv7.tar.gz \
     5552f1ef2398cee46ef2cf733f8f1258f39a77ad065dfd47282fc0df9fe1976c
-if [ ! -s $D/APKINDEX.main ]; then
-    get $ALPINE/main/armv7/APKINDEX.tar.gz $D/APKINDEX.tar.gz
-    tar -xzOf $D/APKINDEX.tar.gz APKINDEX > $D/APKINDEX.main
-    rm $D/APKINDEX.tar.gz
-fi
+for repo in main community; do
+    if [ ! -s $D/APKINDEX.$repo ]; then
+        get $ALPINE/$repo/armv7/APKINDEX.tar.gz $D/APKINDEX.tar.gz
+        tar -xzOf $D/APKINDEX.tar.gz APKINDEX > $D/APKINDEX.$repo
+        rm $D/APKINDEX.tar.gz
+    fi
+done
 
 # The sysroot tools/kcc and tools/kcross compile against: musl, the kernel
 # headers, compiler-rt, libc++ and libunwind, all from Alpine's armv7 builds.
 if [ ! -f $D/sysroot/usr/lib/libc.a ]; then
-    for p in $(python3 tools/apkdeps.py --exact $D/APKINDEX.main musl musl-dev linux-headers compiler-rt \
+    for rp in $(python3 tools/apkdeps.py --exact $D/APKINDEX.main musl musl-dev linux-headers compiler-rt \
         libc++ libc++-dev libc++-static llvm-libunwind-dev llvm-libunwind-static); do
+        p=${rp#*/}
         get "$ALPINE/main/armv7/$p.apk" "$D/alpine-dev/$p.apk"
         tar -xzf "$D/alpine-dev/$p.apk" -C $D/sysroot --exclude '.SIGN*' --exclude '.PKGINFO' --exclude '.pre-*' --exclude '.post-*' --exclude '.trigger' 2>/dev/null
     done
