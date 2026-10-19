@@ -162,6 +162,27 @@ static void icon_sun(float cx, float cy, float s, unsigned char ink) {
 }
 
 /* Draws the named icon. Unknown names get the ink drop. */
+/* A font glyph centred on (cx, cy), blended in like the line art. */
+static void glyph_center(font *f, int px, int c, float cx, float cy, unsigned char ink) {
+    const glyph *g = glyph_get(f, px, c);
+    int x0 = (int)(cx - g->w / 2.0f), y0 = (int)(cy - g->h / 2.0f);
+    for (int j = 0; j < g->h; j++)
+        for (int i = 0; i < g->w; i++)
+            if (g->bm[j * g->w + i]) blend(x0 + i, y0 + j, ink, g->bm[j * g->w + i] / 255.0f);
+}
+
+/* A terminal window with a prompt and a cursor. */
+static void icon_terminal(float cx, float cy, float s) {
+    float t = s * 0.06f, w = s * 0.72f, h = s * 0.56f, x = cx - w / 2, y = cy - h / 2;
+    rrect_line(x, y, w, h, s * 0.07f, t, BLACK);
+    line(x + w * 0.2f, y + h * 0.32f, x + w * 0.36f, y + h * 0.5f, t, BLACK);
+    line(x + w * 0.36f, y + h * 0.5f, x + w * 0.2f, y + h * 0.68f, t, BLACK);
+    line(x + w * 0.46f, y + h * 0.7f, x + w * 0.74f, y + h * 0.7f, t, BLACK);
+}
+
+/* The black knight from the chess font. */
+static void icon_knight(float cx, float cy, float s) { glyph_center(&f_chess, (int)(s * 1.1f), 0x265E, cx, cy, BLACK); }
+
 static void icon(const char *name, float cx, float cy, float s) {
     if (!strcmp(name, "book")) icon_book(cx, cy, s);
     else if (!strcmp(name, "skull")) icon_skull(cx, cy, s);
@@ -173,6 +194,8 @@ static void icon(const char *name, float cx, float cy, float s) {
     else if (!strcmp(name, "crown")) icon_crown(cx, cy, s);
     else if (!strcmp(name, "gear")) icon_gear(cx, cy, s);
     else if (!strcmp(name, "quill")) icon_quill(cx, cy, s);
+    else if (!strcmp(name, "terminal")) icon_terminal(cx, cy, s);
+    else if (!strcmp(name, "knight")) icon_knight(cx, cy, s);
     else icon_drop(cx, cy, s);
 }
 

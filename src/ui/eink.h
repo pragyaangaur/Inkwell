@@ -133,7 +133,8 @@ static void unsnap(snapshot *s) {
 typedef struct { stbtt_fontinfo info; const char *file; int loaded; } font;
 
 /* The Inkwell type set. Inter for the interface, Cormorant Garamond for
- * display, Caveat for handwriting and JetBrains Mono for editing. */
+ * display, Caveat for handwriting, JetBrains Mono for editing and the
+ * terminal, and DejaVu Sans for the chess pieces. */
 static font f_ui = {.file = "Inter-Regular.ttf"};
 static font f_ui_bold = {.file = "Inter-SemiBold.ttf"};
 static font f_heavy = {.file = "Inter-ExtraBold.ttf"};
@@ -142,6 +143,7 @@ static font f_serif_bold = {.file = "Cormorant-Bold.ttf"};
 static font f_serif_italic = {.file = "Cormorant-Italic.ttf"};
 static font f_hand = {.file = "Caveat-Medium.ttf"};
 static font f_mono = {.file = "JetBrainsMono-Regular.ttf"};
+static font f_chess = {.file = "DejaVuSans-Chess.ttf"}; /* only the twelve chess symbols */
 #define FONT_DIR "/usr/share/fonts/inkwell/"
 
 /* Fonts are memory-mapped on first use, so an app only pays for the faces it
