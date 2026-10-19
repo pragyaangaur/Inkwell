@@ -1,12 +1,16 @@
-/* settings: restart, power off, the stock Kindle UI, and an About card with
- * what the device is doing. Exits 10, 11 or 12 to ask home (and through it
+/* settings: restart, power off, the stock Kindle UI, a graph of the battery
+ * over the last day (own-init logs it every ten minutes), and an About card
+ * with what the device is doing. Exits 10, 11 or 12 to ask home (and through it
  * own-init) for the Kindle UI, a reboot or power off. */
 #include "ui.h"
 #include <sys/statvfs.h>
 #include <sys/sysinfo.h>
 #include <sys/utsname.h>
+#include <time.h>
 
 #define BATTERY "/sys/class/power_supply/max77696-battery/"
+#define BATTERY_LOG "/mnt/us/linux/battery.log"
+#define DAY (24 * 3600)
 
 static void read_str(const char *path, char *out, int n) {
     FILE *f = fopen(path, "r");
@@ -18,10 +22,54 @@ static rect restart_btn, off_btn, kindle_btn;
 
 static void about_row(int *y, const char *k, const char *v) {
     char fit[120];
-    text(&f_ui, 34, MARGIN + 30, *y, k, 0x60);
-    text_fit(&f_ui_bold, 34, v, W - 2 * MARGIN - 330, fit, sizeof fit);
-    text_right(&f_ui_bold, 34, W - MARGIN - 30, *y, fit, BLACK);
-    *y += 62;
+    text(&f_ui, 30, MARGIN + 30, *y, k, 0x60);
+    text_fit(&f_ui_bold, 30, v, W - 2 * MARGIN - 330, fit, sizeof fit);
+    text_right(&f_ui_bold, 30, W - MARGIN - 30, *y, fit, BLACK);
+    *y += 50;
+}
+
+/* The battery over the last 24 hours, with charging shaded. */
+static void battery_graph(int x, int y, int w, int h) {
+    static long t[2000];
+    static int pct[2000], chg[2000];
+    int n = 0;
+    long now = (long)time(0);
+    char st[32];
+    FILE *f = fopen(BATTERY_LOG, "r");
+    while (f && n < 2000 && fscanf(f, "%ld %d %31s", &t[n], &pct[n], st) == 3) {
+        chg[n] = !strcmp(st, "Charging") || !strcmp(st, "Full");
+        if (t[n] > now - DAY && t[n] <= now) n++;
+    }
+    if (f) fclose(f);
+    rrect_line(x, y, w, h, 18, 3, BLACK);
+    int gx = x + 70, gw = w - 100, gy = y + 24, gh = h - 74;
+    for (int k = 0; k <= 4; k++) {
+        int yy = gy + gh - gh * k / 4;
+        fill(gx, yy, gw, 1, k == 0 ? 0x60 : 0xC8);
+        if (k % 2 == 0) {
+            char l[8];
+            snprintf(l, sizeof l, "%d", k * 25);
+            text_right(&f_ui, 22, gx - 10, yy - 13, l, 0x60);
+        }
+    }
+    static const char *ticks[] = {"24h ago", "18h", "12h", "6h", "now"};
+    for (int k = 0; k <= 4; k++) {
+        int xx = gx + gw * k / 4;
+        fill(xx, gy + gh, 1, 8, 0x60);
+        int tw = text_width(&f_ui, 22, ticks[k]);
+        text(&f_ui, 22, k == 0 ? xx : k == 4 ? xx - tw : xx - tw / 2, gy + gh + 12, ticks[k], 0x60);
+    }
+    if (n < 2) {
+        text_center(&f_ui, 28, gx + gw / 2, gy + gh / 2 - 16, "The graph fills in over the next few hours.", 0x60);
+        return;
+    }
+    for (int i = 1; i < n; i++) {
+        float x0 = gx + gw * (float)(t[i - 1] - (now - DAY)) / DAY, x1 = gx + gw * (float)(t[i] - (now - DAY)) / DAY;
+        float y0 = gy + gh - gh * pct[i - 1] / 100.0f, y1 = gy + gh - gh * pct[i] / 100.0f;
+        if (t[i] - t[i - 1] > 1800) continue; /* the Kindle was off or asleep: leave a gap */
+        if (chg[i]) fill((int)x0, (int)fminf(y0, y1), (int)(x1 - x0) + 1, gy + gh - (int)fminf(y0, y1), 0xD8);
+        line(x0, y0, x1, y1, 4, BLACK);
+    }
 }
 
 static void draw(void) {
@@ -35,10 +83,12 @@ static void draw(void) {
     pill(off_btn, "Power off", 0);
     pill(kindle_btn, "Open the stock Kindle UI once", 0);
 
-    int y = 540;
-    text(&f_serif_bold, 60, MARGIN, y, "About this Kindle", BLACK);
-    y += 100;
-    rrect_line(MARGIN, y - 20, W - 2 * MARGIN, 62 * 9 + 30, 24, 3, BLACK);
+    text(&f_serif_bold, 52, MARGIN, 490, "Battery", BLACK);
+    battery_graph(MARGIN, 566, W - 2 * MARGIN, 270);
+    int y = 870;
+    text(&f_serif_bold, 52, MARGIN, y, "About this Kindle", BLACK);
+    y += 90;
+    rrect_line(MARGIN, y - 20, W - 2 * MARGIN, 50 * 8 + 24, 24, 3, BLACK);
     struct utsname u;
     uname(&u);
     read_str("/etc/alpine-release", a, sizeof a);
@@ -66,9 +116,8 @@ static void draw(void) {
     read_str("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", a, sizeof a);
     snprintf(buf, sizeof buf, "i.MX6 SoloLite, %s", a);
     about_row(&y, "Processor", buf);
-    about_row(&y, "Display", "1072 x 1448, 300 dpi");
 
-    text_center(&f_hand, 44, W / 2, H - 110, "everything on this screen is yours", 0x60);
+    text_center(&f_hand, 40, W / 2, H - 66, "everything on this screen is yours", 0x60);
     flip();
 }
 
