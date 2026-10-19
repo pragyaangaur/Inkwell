@@ -2,9 +2,9 @@
 
 Inkwell is a small Linux system of its own for the jailbroken Kindle Paperwhite 3. Amazon's bootloader and kernel still start the device, and everything after that is replaced: the home screen, the apps, Wi-Fi, USB networking and SSH all come from an Alpine Linux userspace built for the e-ink panel.
 
-It has a chatbot called Quill that runs a language model on the Kindle itself with no internet. It also plays Doom, chess and the first version of Minecraft, and it has a terminal, a reading web browser, notes, a sketchpad and a falling-block game called TriKing. You install it by copying one folder to the Kindle and tapping one item in the library, and one more tap brings the normal Kindle back.
+It has a chatbot called Quill that runs a language model on the Kindle itself with no internet, and in the terminal Quill writes and runs code. It reads EPUB and PDF books, keeps arXiv papers for reading offline, and plays Doom, chess and the first version of Minecraft. It also has a reading web browser, notes, a sketchpad and a falling-block game called TriKing. You install it by copying one folder to the Kindle and tapping one item in the library, and one more tap brings the normal Kindle back.
 
-<p align="center"><img src="docs/images/home.png" width="380" alt="The Inkwell home screen with a serif clock, nine app icons and a frontlight slider"></p>
+<p align="center"><img src="docs/images/home.png" width="380" alt="The Inkwell home screen with a serif clock, thirteen app icons and a frontlight slider"></p>
 
 These clips are from a real Kindle Paperwhite 3. Some are sped up, and each caption says by how much.
 
@@ -21,22 +21,29 @@ These clips are from a real Kindle Paperwhite 3. Some are sped up, and each capt
 ## What is on it
 
 - **Quill** is a chatbot that runs SmolLM2 through llama.cpp on the Kindle's own processor. It writes its answer word by word at about 1.7 words per second with the quick model, and a slower smart model can be added. Nothing leaves the device.
+- **Books** reads EPUB, PDF, MOBI, FB2 and text files from the `documents` folder through MuPDF. Books reflow to eight font sizes, and PDFs are shown with their margins trimmed, or in a Columns mode that cuts a two-column paper into strips the width of the screen. You tap the right of the page to go on and the left to go back. The top opens a page slider, the table of contents and bookmarks, and every book reopens on the page where you left it.
+- **arXiv** fetches a paper by its number, such as `1706.03762`, and shows its title, authors and abstract. **Save offline** downloads the PDF to the `arxiv` folder and opens it in Books, and saved papers stay listed for reading without Wi-Fi.
 - **Doom** is the original shareware episode. The game is drawn into the top of the screen, dithered to black and white so each frame can use the fastest refresh, and played with an on-screen d-pad, Fire and Use buttons.
 - **Minecraft** is rd-132211, the first version of Minecraft from 2009, through [rdgeneric](https://github.com/pragyaangaur/Can-It-Run-Minecraft). You can walk, dig and place blocks.
 - **TriKing** is a falling-block game where every piece has three cells. You tap the board to rotate, drag to move and flick down to drop.
 - **Browser** fetches a page, keeps the headings, paragraphs and links, and lays them out as pages you turn. It searches with Bing.
 - **Chess** plays against Inkwell's own engine, a small alpha-beta search written for this processor. Easy answers at once, Medium thinks for up to two seconds and Hard for up to six. You can play either colour and take moves back, and the game is saved to the `chess` folder, so you can carry on later.
-- **Terminal** runs a shell on the Kindle with an extra row of keys for Esc, Tab, Ctrl and the arrows. It handles full-screen programs such as `vi` and `top`, and `ssh` connects to the computer on the other end of the USB cable. Hiding the keyboard shows the whole screen.
+- **Terminal** runs a shell on the Kindle with an extra row of keys for Esc, Tab, Ctrl and the arrows. It handles full-screen programs such as `vi` and `top`, and `ssh` connects to the computer on the other end of the USB cable. Hiding the keyboard shows the whole screen. Python 3 is installed.
+- **Quill in the terminal.** Typing `quill` there starts a coding assistant. You ask for a program in plain words, `/run` runs the code from the last answer with Python or `sh`, `/fix` sends its error back for a corrected version, `/save` writes it to a file and `/read` shows Quill one of your files. It uses Qwen2.5 Coder 0.5B when that model is installed, which writes about half a word per second, so a short program takes a few minutes.
 - **Notes** saves plain text files to the `notes` folder on the Kindle's drive, so you can read them on a computer.
 - **Sketch** is a drawing pad that saves pictures to the `sketches` folder.
 - **Wi-Fi** scans for networks and joins them with the on-screen keyboard.
-- **Settings** restarts or powers off the Kindle, opens the normal Kindle UI once, and shows the battery, memory and storage.
+- **Settings** restarts or powers off the Kindle, opens the normal Kindle UI once, draws the battery over the last day, and shows memory and storage.
 
-The home screen also has a clock, the date, the battery and a frontlight slider. The Kindle sleeps after 15 minutes on the home screen or when you press the power button there, and it shows a night sky while it sleeps.
+The home screen also has a clock, the date, the battery and a frontlight slider. To move an app, drag it onto another place. The Kindle sleeps after 15 minutes without a touch in any app, or when you press the power button on the home screen or in Books, and it shows a night sky while it sleeps. When it wakes, the app is just as you left it. With Wi-Fi on, the clock sets itself from the network.
 
-| Chess | Terminal |
-| :---: | :---: |
-| <img src="docs/images/chess.png" width="300" alt="A chess game in the opening, with Inkwell having played Nc6"> | <img src="docs/images/terminal.png" width="300" alt="The terminal running top, with the extra keys above the keyboard"> |
+| Books | arXiv | PDF in Columns mode |
+| :---: | :---: | :---: |
+| <img src="docs/images/books.png" width="250" alt="A page of Alice in Wonderland in Books"> | <img src="docs/images/arxiv.png" width="250" alt="The arXiv page for Attention Is All You Need with its abstract and a Save offline button"> | <img src="docs/images/pdf-columns.png" width="250" alt="A paper's introduction zoomed to the full width of the screen"> |
+
+| Chess | Terminal | Settings |
+| :---: | :---: | :---: |
+| <img src="docs/images/chess.png" width="250" alt="A chess game in the opening, with Inkwell having played Nc6"> | <img src="docs/images/terminal.png" width="250" alt="The terminal running top, with the extra keys above the keyboard"> | <img src="docs/images/settings.png" width="250" alt="Settings with a graph of the battery over the last day"> |
 
 | Quill | TriKing | Sleep screen | Notes | Settings |
 | :---: | :---: | :---: | :---: | :---: |
@@ -52,21 +59,25 @@ You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) that is alrea
 4. Eject the Kindle and unplug it.
 5. Open the Kindle's library and tap **Inkwell: install**.
 
-The Kindle reboots, shows the Inkwell splash for a moment and opens the home screen within about 20 seconds. Release 1.0.0 has every app above except Chess and Terminal, which are in this repository and will be in the next release. From then on it starts Inkwell every time it boots.
+The Kindle reboots, shows the Inkwell splash for a moment and opens the home screen within about 20 seconds. Release 1.0.0 has every app above except Books, arXiv, Chess, Terminal and coding with Quill, which are in this repository and will be in the next release. From then on it starts Inkwell every time it boots.
 
 ## Use
 
 Tap an app to open it, and tap the round arrow in the top left corner to go back. In Quill and the three games the power button also goes back to the home screen. On the home screen the power button puts the Kindle to sleep, and pressing it again wakes it.
 
-**Wi-Fi.** Open Wi-Fi, tap **Scan**, tap your network and type its password. Inkwell remembers it in `linux/wifi.conf` and joins it at every boot. Wi-Fi is only needed for the browser.
+**Wi-Fi.** Open Wi-Fi, tap **Scan**, tap your network and type its password. Inkwell remembers it in `linux/wifi.conf` and joins it at every boot. Wi-Fi is needed for the browser, arXiv and setting the clock.
 
 **The smart model.** Quill comes with the quick model (135 million parameters). The release also has `smollm2-360m-q4_0.gguf`, which knows more and writes about 0.7 words per second. Put that file in the `linux/models` folder on the Kindle's drive, and the **quick** button in Quill then switches between the two. The first chat with each model takes a little longer while Quill prepares it.
+
+**The coding model.** For coding in the terminal, put `qwen2.5-coder-0.5b-q4_0.gguf` in `linux/models` too. It is the Q4_0 file of [Qwen2.5 Coder 0.5B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF), renamed, and `tools/get-models.sh` downloads it. Without it, `quill` in the terminal uses the SmolLM2 models, which are much weaker at code. `QUILL_MODEL=quick quill` picks the fast 135M model anyway, and `smart` or `coder` pick the others. On the Kindle, the coder model wrote a correct Fibonacci program in about ten minutes, three of them spent preparing its prompt the first time.
+
+**Books.** Copy EPUB, PDF, MOBI, FB2 or text files into the `documents` folder on the Kindle's drive, and they appear in Books. Your place, font size and bookmarks for each book are kept in `linux/reader`.
 
 **The time zone.** Inkwell uses UTC until you tell it otherwise. Open `linux/timezone` on the Kindle's drive and replace `UTC` with your zone name, for example `Europe/London`, `America/New_York` or `Asia/Kolkata`. It takes effect at the next boot.
 
 **SSH to your computer.** On a Mac, turn on Remote Login in System Settings, under General and then Sharing. In the Terminal app, `ssh yourname@192.168.15.201` then connects to the Mac over the USB cable. The address is the one Inkwell hands the computer, and Linux computers work the same way with their SSH server running.
 
-**Your files.** Notes are in `notes`, sketches are in `sketches` and Doom saves are in `doom` on the Kindle's drive. While Inkwell runs, the USB port is a network link, so to reach the drive you open the normal Kindle UI once (below) and plug in the cable.
+**Your files.** Notes are in `notes`, sketches are in `sketches`, arXiv papers are in `arxiv`, chess games are in `chess` and Doom saves are in `doom` on the Kindle's drive. While Inkwell runs, the USB port is a network link, so to reach the drive you open the normal Kindle UI once (below) and plug in the cable.
 
 ## Going back to the normal Kindle
 
@@ -131,6 +142,8 @@ Quill's model runs in `inkllm`, a small program around llama.cpp that Quill talk
 - **Half floats on the Cortex-A9.** Clang defines `__ARM_FP16_FORMAT_IEEE` on every 32-bit Arm target, so ggml converted each block's fp16 scale through a software routine. The A9 has no half-precision hardware. `build-llm.sh` patches ggml to require real fp16 support (`__ARM_FP & 2`), and that doubled the speed. Afterwards the 135M model makes 1.7 tokens per second and reads prompts at 4.4 tokens per second, and the 360M model makes 0.72 tokens per second. The KV cache is f32 for the same reason.
 - **Touch input.** The kernel drops a coordinate that has not changed, so a finger landing exactly where the last one lifted sends no position. Inkwell counts a new tracking id as movement. Taps also arrive in bursts while the panel refreshes, so input is queued, since keeping only the first tap lost keystrokes.
 - **Boot time.** The home screen appears about 15.9 seconds after the kernel starts. About 14 seconds of that is Amazon's hardware jobs, and loading the display waveforms alone takes about 3 seconds. Inkwell loads its drivers while the splash is showing and starts networking after the home screen, and it switches the CPU to the `ondemand` governor, since Amazon keeps it at full speed until its own home screen loads. Inkwell uses about 40 MB of the 512 MB of memory.
+- **Touches across apps.** The kernel only reports a coordinate when it changes. While one app runs another, the first one's input stream fills with the second one's touches, and throwing those away on return left it with a stale position. A tap on the same spot as the last tap in the other app then went to the wrong place. Each app now follows the finger through those touches without acting on them, and writes the last position to `/run/own/touch` for the next app that starts.
+- **MuPDF on a pipe.** Books keeps one `mutool run` process open and talks to it line by line. On a pipe the C library held its answers in a buffer until it quit, so its output goes through a pseudo-terminal, which is flushed at every line.
 - **Where not to mount.** Amazon's boot jobs give everything under `/var/tmp` to `javauser` with group-writable modes, which breaks SSH's key checks and exec bits. The image is mounted at `/mnt/own` instead.
 
 ## Build it yourself
