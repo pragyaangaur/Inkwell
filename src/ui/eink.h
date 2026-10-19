@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -280,6 +281,24 @@ static int text_wrap(font *f, int px, const char *t, int max_w, void (*emit)(con
 static int touchfd = -1, keyfd = -1;
 static int tx0, tx1, ty0, ty1;
 
+/* Where the finger last was, kept across apps. The kernel only reports a
+ * coordinate that changed, so a tap landing exactly where the previous one
+ * lifted sends no position at all. While another app runs, its taps move
+ * that position without this app seeing them, so every app writes the last
+ * lift to /run/own/touch and a newly started app reads it back. */
+#define TOUCH_STATE "/run/own/touch"
+static int t_down, t_x, t_y, t_sx, t_sy, t_moved;
+
+static void touch_save(void) {
+    FILE *f = fopen(TOUCH_STATE, "w");
+    if (f) { fprintf(f, "%d %d\n", t_x, t_y); fclose(f); }
+}
+static void touch_load(void) {
+    FILE *f = fopen(TOUCH_STATE, "r");
+    if (f) { if (fscanf(f, "%d %d", &t_x, &t_y) != 2) t_x = t_y = 0; fclose(f); }
+}
+
+
 static void input_open(void) {
     for (int n = 0; n < 8; n++) {
         char path[32], name[64] = "";
@@ -291,6 +310,7 @@ static void input_open(void) {
         if (touchfd < 0 && ioctl(fd, EVIOCGABS(ABS_MT_POSITION_X), &ax) == 0 &&
             ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), &ay) == 0 && ax.maximum > 0) {
             touchfd = fd; tx0 = ax.minimum; tx1 = ax.maximum; ty0 = ay.minimum; ty1 = ay.maximum;
+            touch_load();
         } else if (keyfd < 0 && strstr(name, "onkey")) {
             keyfd = fd;
         } else {
@@ -310,54 +330,78 @@ typedef struct { int type, x, y, ux, uy; } event;
 static event evq[EVQ];
 static int evq_head, evq_tail;
 static int want_moves;
+
+/* Idle sleep. ui.h points idle_hook at a function that shows the sleep
+ * screen and suspends, so every app sleeps after IDLE_SECS without a touch.
+ * Apps that are busy without touches (a terminal printing, Quill writing)
+ * call idle_touch() to stay awake. */
+#define IDLE_SECS (15 * 60)
+static time_t last_input;
+static void (*idle_hook)(void);
+static void idle_touch(void) { last_input = time(0); }
+static void idle_check(void) {
+    if (!last_input) idle_touch();
+    if (idle_hook && time(0) - last_input >= IDLE_SECS) { idle_hook(); idle_touch(); }
+}
+
 static void evq_push(event e) {
+    last_input = time(0);
     int next = (evq_tail + 1) % EVQ;
     if (next != evq_head) { evq[evq_tail] = e; evq_tail = next; }
 }
 
+static void input_events(int quiet);
+
+/* Drops waiting taps (after a child app, or when the page changes under
+ * the finger), but still follows the finger so the position stays right. */
 static void input_drain(void) {
-    struct input_event ev[64];
-    while (touchfd >= 0 && read(touchfd, ev, sizeof ev) > 0) {}
-    while (keyfd >= 0 && read(keyfd, ev, sizeof ev) > 0) {}
+    input_events(1);
+    t_down = 0;
     evq_head = evq_tail = 0;
 }
 
-static void input_read(void) {
-    static int down, x, y, sx, sy, moved;
+static void input_read(void) { input_events(0); }
+
+static void input_events(int quiet) {
     struct input_event ev[64];
     long n;
     while (keyfd >= 0 && (n = read(keyfd, ev, sizeof ev)) > 0)
         for (int i = 0; i < n / (long)sizeof *ev; i++)
-            if (ev[i].type == EV_KEY && ev[i].code == KEY_POWER && ev[i].value == 1) evq_push((event){EV_POWER, 0, 0, 0, 0});
+            if (!quiet && ev[i].type == EV_KEY && ev[i].code == KEY_POWER && ev[i].value == 1) evq_push((event){EV_POWER, 0, 0, 0, 0});
     while (touchfd >= 0 && (n = read(touchfd, ev, sizeof ev)) > 0)
         for (int i = 0; i < n / (long)sizeof *ev; i++) {
             struct input_event *e = &ev[i];
             if (e->type == EV_ABS) {
-                if (e->code == ABS_MT_POSITION_X) x = (e->value - tx0) * (W - 1) / (tx1 - tx0 ? tx1 - tx0 : 1), moved = 1;
-                else if (e->code == ABS_MT_POSITION_Y) y = (e->value - ty0) * (H - 1) / (ty1 - ty0 ? ty1 - ty0 : 1), moved = 1;
+                if (e->code == ABS_MT_POSITION_X) t_x = (e->value - tx0) * (W - 1) / (tx1 - tx0 ? tx1 - tx0 : 1), t_moved = 1;
+                else if (e->code == ABS_MT_POSITION_Y) t_y = (e->value - ty0) * (H - 1) / (ty1 - ty0 ? ty1 - ty0 : 1), t_moved = 1;
                 else if (e->code == ABS_MT_TRACKING_ID) {
                     /* The kernel drops coordinates that didn't change, so a finger
                      * landing where the last one lifted sends none. Count the
                      * landing itself as movement. */
-                    if (e->value >= 0 && !down) { down = 1; sx = -1; moved = 1; }
-                    else if (e->value < 0 && down) {
-                        down = 0;
-                        evq_push((event){EV_TAP, sx >= 0 ? sx : x, sx >= 0 ? sy : y, x, y});
+                    if (e->value >= 0 && !t_down) { t_down = 1; t_sx = -1; t_moved = 1; }
+                    else if (e->value < 0 && t_down) {
+                        t_down = 0;
+                        touch_save();
+                        if (!quiet) evq_push((event){EV_TAP, t_sx >= 0 ? t_sx : t_x, t_sx >= 0 ? t_sy : t_y, t_x, t_y});
                     }
                 }
-            } else if (e->type == EV_SYN && e->code == SYN_REPORT && down && moved) {
-                moved = 0;
-                if (sx < 0) { sx = x; sy = y; evq_push((event){EV_DOWN, x, y, x, y}); }
-                else if (want_moves) evq_push((event){EV_MOVE, x, y, x, y});
+            } else if (e->type == EV_SYN && e->code == SYN_REPORT && t_down && t_moved) {
+                t_moved = 0;
+                if (t_sx < 0) { t_sx = t_x; t_sy = t_y; if (!quiet) evq_push((event){EV_DOWN, t_x, t_y, t_x, t_y}); }
+                else if (want_moves && !quiet) evq_push((event){EV_MOVE, t_x, t_y, t_x, t_y});
             }
         }
 }
 
 /* Waits up to timeout_ms (-1 for ever) for the next event. */
 static event input_wait(int timeout_ms) {
-    if (evq_head == evq_tail) {
+    /* Waiting for ever is done a minute at a time, so idle sleep can step in. */
+    while (evq_head == evq_tail) {
+        int step = timeout_ms < 0 || timeout_ms > 60000 ? 60000 : timeout_ms;
         struct pollfd p[2] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}};
-        if (poll(p, 2, timeout_ms) > 0) input_read();
+        if (poll(p, 2, step) > 0) { input_read(); continue; }
+        idle_check();
+        if (timeout_ms >= 0 && (timeout_ms -= step) <= 0) break;
     }
     if (evq_head == evq_tail) return (event){EV_NONE, 0, 0, 0, 0};
     event e = evq[evq_head];
