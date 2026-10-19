@@ -60,7 +60,10 @@ static void battery_graph(int x, int y, int w, int h) {
         text(&f_ui, 22, k == 0 ? xx : k == 4 ? xx - tw : xx - tw / 2, gy + gh + 12, ticks[k], 0x60);
     }
     if (n < 2) {
-        text_center(&f_ui, 28, gx + gw / 2, gy + gh / 2 - 16, "The graph fills in over the next few hours.", 0x60);
+        const char *msg = "The graph fills in over the next few hours.";
+        int mw = text_width(&f_ui, 28, msg);
+        fill(gx + gw / 2 - mw / 2 - 16, gy + gh / 2 - 26, mw + 32, 56, WHITE);
+        text_center(&f_ui, 28, gx + gw / 2, gy + gh / 2 - 16, msg, 0x60);
         return;
     }
     for (int i = 1; i < n; i++) {
