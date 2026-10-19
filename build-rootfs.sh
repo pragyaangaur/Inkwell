@@ -46,7 +46,7 @@ fi
 chmod 700 "$S/root" "$S/root/.ssh"
 chmod 1777 "$S/tmp"
 cp fonts/*.ttf "$S/usr/share/fonts/inkwell/"
-for p in home splash wifi settings notes sketch browser doom quill inkllm tap; do cp out/$p "$S/usr/local/bin/"; done
+for p in home splash wifi settings notes sketch browser term chess doom quill inkllm tap; do cp out/$p "$S/usr/local/bin/"; done
 cp out/rd-kindle out/triking "$S/usr/local/games/"
 mkdir -p "$S/usr/local/share/doom"
 cp downloads/doom/doom1.wad "$S/usr/local/share/doom/" # the shareware episode, free to share
@@ -54,6 +54,7 @@ cp "$S/usr/share/zoneinfo/$TZ_NAME" "$S/etc/localtime"
 echo "$TZ_NAME" > "$S/etc/timezone"
 ln -sf /usr/local/bin/kindle "$S/usr/bin/kindle"
 ln -sf /usr/local/bin/tap "$S/usr/bin/tap"
+ln -sf /usr/bin/dbclient "$S/usr/bin/ssh" # Dropbear's client, under the name people type
 ln -sf /bin/busybox-extras "$S/usr/sbin/udhcpd" # applet links come from an apk trigger we skip
 
 "$E2/mke2fs" -q -F -t ext3 -L alpine -E root_owner=0:0 -d "$S" "$IMG" "$SIZE"
