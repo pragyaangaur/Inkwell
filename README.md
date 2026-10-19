@@ -53,13 +53,13 @@ The home screen also has a clock, the date, the battery and a frontlight slider.
 
 You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) that is already jailbroken. [kindlemodding.org](https://kindlemodding.org) explains how to jailbreak it, for example with WinterBreak. Inkwell was built and tested on firmware 5.16.2.1.1, and it needs about 1.5 GB of free space.
 
-1. Download `Inkwell-1.0.0.zip` from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
+1. Download `Inkwell-1.1.0.zip` from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
 2. Connect the Kindle to your computer with a USB cable, so it shows up as a drive.
 3. Copy both folders to the top of the Kindle's drive. The `documents` folder already exists there, so let your computer merge the two.
 4. Eject the Kindle and unplug it.
 5. Open the Kindle's library and tap **Inkwell: install**.
 
-The Kindle reboots, shows the Inkwell splash for a moment and opens the home screen within about 20 seconds. Release 1.0.0 has every app above except Books, arXiv, Chess, Terminal and coding with Quill, which are in this repository and will be in the next release. From then on it starts Inkwell every time it boots.
+The Kindle reboots, shows the Inkwell splash for a moment and opens the home screen within about 20 seconds. From then on it starts Inkwell every time it boots.
 
 ## Use
 
@@ -69,7 +69,7 @@ Tap an app to open it, and tap the round arrow in the top left corner to go back
 
 **The smart model.** Quill comes with the quick model (135 million parameters). The release also has `smollm2-360m-q4_0.gguf`, which knows more and writes about 0.7 words per second. Put that file in the `linux/models` folder on the Kindle's drive, and the **quick** button in Quill then switches between the two. The first chat with each model takes a little longer while Quill prepares it.
 
-**The coding model.** For coding in the terminal, put `qwen2.5-coder-0.5b-q4_0.gguf` in `linux/models` too. It is the Q4_0 file of [Qwen2.5 Coder 0.5B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF), renamed, and `tools/get-models.sh` downloads it. Without it, `quill` in the terminal uses the SmolLM2 models, which are much weaker at code. `QUILL_MODEL=quick quill` picks the fast 135M model anyway, and `smart` or `coder` pick the others. On the Kindle, the coder model wrote a correct Fibonacci program in about ten minutes, three of them spent preparing its prompt the first time.
+**The coding model.** For coding in the terminal, put `qwen2.5-coder-0.5b-q4_0.gguf` in `linux/models` too. The release has it, and it is the Q4_0 file of [Qwen2.5 Coder 0.5B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF), renamed. Without it, `quill` in the terminal uses the SmolLM2 models, which are much weaker at code. `QUILL_MODEL=quick quill` picks the fast 135M model anyway, and `smart` or `coder` pick the others. On the Kindle, the coder model wrote a correct Fibonacci program in about ten minutes, three of them spent preparing its prompt the first time.
 
 **Books.** Copy EPUB, PDF, MOBI, FB2 or text files into the `documents` folder on the Kindle's drive, and they appear in Books. Your place, font size and bookmarks for each book are kept in `linux/reader`.
 
@@ -166,7 +166,7 @@ tools/fetch.sh
 ./build-rootfs.sh
 ```
 
-`tools/fetch.sh` downloads the Alpine minirootfs and packages, a sysroot made from Alpine's musl and libc++ packages, llama.cpp v0.7.0, the shareware Doom WAD and the two models into `downloads/`. `./build-rootfs.sh` compiles everything and writes `out/alpine.img`, and `tools/release.sh 1.0.0` builds the release zip in `dist/`. Set `TZ_NAME` to change the image's default time zone. If `keys/` holds a key from `./ssh.sh`, the image you build includes it.
+`tools/fetch.sh` downloads the Alpine minirootfs and packages, a sysroot made from Alpine's musl and libc++ packages, llama.cpp v0.7.0, the shareware Doom WAD and the three models into `downloads/`. `./build-rootfs.sh` compiles everything and writes `out/alpine.img`, and `tools/release.sh 1.1.0` builds the release zip in `dist/`. Set `TZ_NAME` to change the image's default time zone. If `keys/` holds a key from `./ssh.sh`, the image you build includes it.
 
 | Path | What it holds |
 | --- | --- |
