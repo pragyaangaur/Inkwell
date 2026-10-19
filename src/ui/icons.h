@@ -59,6 +59,16 @@ static void icon_page(float cx, float cy, float s) {
     for (int i = 0; i < 3; i++) line(x + w * 0.2f, y + h * (0.45f + 0.16f * i), x + w * (i == 2 ? 0.6f : 0.8f), y + h * (0.45f + 0.16f * i), t * 0.6f, 0x50);
 }
 
+/* A paper with a bold X, for arXiv. */
+static void icon_paper(float cx, float cy, float s) {
+    float t = s * 0.06f, w = s * 0.56f, h = s * 0.74f, x = cx - w / 2, y = cy - h / 2;
+    rrect_line(x, y, w, h, s * 0.03f, t, BLACK);
+    line(x + w * 0.2f, y + h * 0.18f, x + w * 0.8f, y + h * 0.18f, t * 0.6f, 0x50);
+    line(x + w * 0.2f, y + h * 0.3f, x + w * 0.65f, y + h * 0.3f, t * 0.6f, 0x50);
+    line(x + w * 0.24f, y + h * 0.46f, x + w * 0.76f, y + h * 0.86f, t * 1.9f, BLACK);
+    line(x + w * 0.76f, y + h * 0.46f, x + w * 0.24f, y + h * 0.86f, t * 1.1f, BLACK);
+}
+
 static void icon_pencil(float cx, float cy, float s) {
     float t = s * 0.055f, a = s * 0.32f, w = s * 0.09f;
     /* body along the diagonal from top right to bottom left */
@@ -196,6 +206,7 @@ static void icon(const char *name, float cx, float cy, float s) {
     else if (!strcmp(name, "quill")) icon_quill(cx, cy, s);
     else if (!strcmp(name, "terminal")) icon_terminal(cx, cy, s);
     else if (!strcmp(name, "knight")) icon_knight(cx, cy, s);
+    else if (!strcmp(name, "paper")) icon_paper(cx, cy, s);
     else icon_drop(cx, cy, s);
 }
 
