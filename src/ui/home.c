@@ -80,8 +80,10 @@ static rect slider_r;
 static int slider_x0, slider_x1;
 
 static void layout(void) {
-    int cw = (W - 2 * MARGIN) / 3;
-    for (int i = 0; i < napps; i++) apps[i].r = (rect){MARGIN + (i % 3) * cw, GRID_Y + (i / 3) * CELL_H, cw, CELL_H};
+    /* Three columns hold nine apps. More than that goes to four columns,
+     * which keeps the rows the same height. */
+    int ncol = napps > 9 ? 4 : 3, cw = (W - 2 * MARGIN) / ncol;
+    for (int i = 0; i < napps; i++) apps[i].r = (rect){MARGIN + (i % ncol) * cw, GRID_Y + (i / ncol) * CELL_H, cw, CELL_H};
     slider_x0 = MARGIN + 90;
     slider_x1 = W - MARGIN - 130;
     slider_r = (rect){MARGIN, SLIDER_Y - 20, W - 2 * MARGIN, SLIDER_H + 40};
