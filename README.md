@@ -2,7 +2,7 @@
 
 Inkwell is a small Linux system of its own for the jailbroken Kindle Paperwhite 3. Amazon's bootloader and kernel still start the device, and everything after that is replaced: the home screen, the apps, Wi-Fi, USB networking and SSH all come from an Alpine Linux userspace built for the e-ink panel.
 
-It has a chatbot called Quill that runs a language model on the Kindle itself with no internet. It also plays Doom and the first version of Minecraft, and it has a reading web browser, notes, a sketchpad and a falling-block game called TriKing. You install it by copying one folder to the Kindle and tapping one item in the library, and one more tap brings the normal Kindle back.
+It has a chatbot called Quill that runs a language model on the Kindle itself with no internet. It also plays Doom, chess and the first version of Minecraft, and it has a terminal, a reading web browser, notes, a sketchpad and a falling-block game called TriKing. You install it by copying one folder to the Kindle and tapping one item in the library, and one more tap brings the normal Kindle back.
 
 <p align="center"><img src="docs/images/home.png" width="380" alt="The Inkwell home screen with a serif clock, nine app icons and a frontlight slider"></p>
 
@@ -25,12 +25,18 @@ These clips are from a real Kindle Paperwhite 3. Some are sped up, and each capt
 - **Minecraft** is rd-132211, the first version of Minecraft from 2009, through [rdgeneric](https://github.com/pragyaangaur/Can-It-Run-Minecraft). You can walk, dig and place blocks.
 - **TriKing** is a falling-block game where every piece has three cells. You tap the board to rotate, drag to move and flick down to drop.
 - **Browser** fetches a page, keeps the headings, paragraphs and links, and lays them out as pages you turn. It searches with Bing.
+- **Chess** plays against Inkwell's own engine, a small alpha-beta search written for this processor. Easy answers at once, Medium thinks for up to two seconds and Hard for up to six. You can play either colour and take moves back, and the game is saved to the `chess` folder, so you can carry on later.
+- **Terminal** runs a shell on the Kindle with an extra row of keys for Esc, Tab, Ctrl and the arrows. It handles full-screen programs such as `vi` and `top`, and `ssh` connects to the computer on the other end of the USB cable. Hiding the keyboard shows the whole screen.
 - **Notes** saves plain text files to the `notes` folder on the Kindle's drive, so you can read them on a computer.
 - **Sketch** is a drawing pad that saves pictures to the `sketches` folder.
 - **Wi-Fi** scans for networks and joins them with the on-screen keyboard.
 - **Settings** restarts or powers off the Kindle, opens the normal Kindle UI once, and shows the battery, memory and storage.
 
 The home screen also has a clock, the date, the battery and a frontlight slider. The Kindle sleeps after 15 minutes on the home screen or when you press the power button there, and it shows a night sky while it sleeps.
+
+| Chess | Terminal |
+| :---: | :---: |
+| <img src="docs/images/chess.png" width="300" alt="A chess game in the opening, with Inkwell having played Nc6"> | <img src="docs/images/terminal.png" width="300" alt="The terminal running top, with the extra keys above the keyboard"> |
 
 | Quill | TriKing | Sleep screen | Notes | Settings |
 | :---: | :---: | :---: | :---: | :---: |
@@ -46,7 +52,7 @@ You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) that is alrea
 4. Eject the Kindle and unplug it.
 5. Open the Kindle's library and tap **Inkwell: install**.
 
-The Kindle reboots, shows the Inkwell splash for a moment and opens the home screen within about 20 seconds. From then on it starts Inkwell every time it boots.
+The Kindle reboots, shows the Inkwell splash for a moment and opens the home screen within about 20 seconds. Release 1.0.0 has every app above except Chess and Terminal, which are in this repository and will be in the next release. From then on it starts Inkwell every time it boots.
 
 ## Use
 
@@ -57,6 +63,8 @@ Tap an app to open it, and tap the round arrow in the top left corner to go back
 **The smart model.** Quill comes with the quick model (135 million parameters). The release also has `smollm2-360m-q4_0.gguf`, which knows more and writes about 0.7 words per second. Put that file in the `linux/models` folder on the Kindle's drive, and the **quick** button in Quill then switches between the two. The first chat with each model takes a little longer while Quill prepares it.
 
 **The time zone.** Inkwell uses UTC until you tell it otherwise. Open `linux/timezone` on the Kindle's drive and replace `UTC` with your zone name, for example `Europe/London`, `America/New_York` or `Asia/Kolkata`. It takes effect at the next boot.
+
+**SSH to your computer.** On a Mac, turn on Remote Login in System Settings, under General and then Sharing. In the Terminal app, `ssh yourname@192.168.15.201` then connects to the Mac over the USB cable. The address is the one Inkwell hands the computer, and Linux computers work the same way with their SSH server running.
 
 **Your files.** Notes are in `notes`, sketches are in `sketches` and Doom saves are in `doom` on the Kindle's drive. While Inkwell runs, the USB port is a network link, so to reach the drive you open the normal Kindle UI once (below) and plug in the cable.
 
@@ -119,6 +127,7 @@ Quill's model runs in `inkllm`, a small program around llama.cpp that Quill talk
   | DU | 380 ms | TriKing |
   | GC16, GL16 | 660 ms | page changes with grey |
 
+- **A2 and grey.** The panel keeps the top four bits of each pixel, so it stores 16 levels. A2 only moves pixels between black and white and leaves a pixel that starts at a grey level alone. Quill's message box was `0xEC`, which is level 14, so typed letters stayed invisible until typing paused and a slower refresh ran. `0xF0` is level 15, which A2 treats as white, and the terminal draws its text without anti-aliasing for the same reason.
 - **Half floats on the Cortex-A9.** Clang defines `__ARM_FP16_FORMAT_IEEE` on every 32-bit Arm target, so ggml converted each block's fp16 scale through a software routine. The A9 has no half-precision hardware. `build-llm.sh` patches ggml to require real fp16 support (`__ARM_FP & 2`), and that doubled the speed. Afterwards the 135M model makes 1.7 tokens per second and reads prompts at 4.4 tokens per second, and the 360M model makes 0.72 tokens per second. The KV cache is f32 for the same reason.
 - **Touch input.** The kernel drops a coordinate that has not changed, so a finger landing exactly where the last one lifted sends no position. Inkwell counts a new tracking id as movement. Taps also arrive in bursts while the panel refreshes, so input is queued, since keeping only the first tap lost keystrokes.
 - **Boot time.** The home screen appears about 15.9 seconds after the kernel starts. About 14 seconds of that is Amazon's hardware jobs, and loading the display waveforms alone takes about 3 seconds. Inkwell loads its drivers while the splash is showing and starts networking after the home screen, and it switches the CPU to the `ondemand` governor, since Amazon keeps it at full speed until its own home screen loads. Inkwell uses about 40 MB of the 512 MB of memory.
@@ -161,8 +170,8 @@ tools/fetch.sh
 
 ## Credits
 
-Inkwell stands on a lot of other people's work: [Alpine Linux](https://alpinelinux.org), [llama.cpp](https://github.com/ggml-org/llama.cpp), [SmolLM2](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct) from Hugging Face (Q4_0 files by [bartowski](https://huggingface.co/bartowski)), [doomgeneric](https://github.com/ozkl/doomgeneric), id Software's Doom and its shareware episode, [stb_truetype](https://github.com/nothings/stb), the Inter, Cormorant Garamond, Caveat and JetBrains Mono typefaces, and the Kindle jailbreak community at [kindlemodding.org](https://kindlemodding.org). The jailbreak itself comes from that community, and Inkwell only starts where it ends.
+Inkwell stands on a lot of other people's work: [Alpine Linux](https://alpinelinux.org), [llama.cpp](https://github.com/ggml-org/llama.cpp), [SmolLM2](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct) from Hugging Face (Q4_0 files by [bartowski](https://huggingface.co/bartowski)), [doomgeneric](https://github.com/ozkl/doomgeneric), id Software's Doom and its shareware episode, [stb_truetype](https://github.com/nothings/stb), the Inter, Cormorant Garamond, Caveat and JetBrains Mono typefaces, the chess symbols from DejaVu Sans, and the Kindle jailbreak community at [kindlemodding.org](https://kindlemodding.org). The jailbreak itself comes from that community, and Inkwell only starts where it ends.
 
 ## Licence
 
-Inkwell's own code is under the MIT licence in `LICENSE`. The Doom port in `src/doom/` is under the GNU GPL version 2, like the Doom source it comes from. The fonts are under the SIL Open Font License, with each licence in `fonts/`. The release image also contains Alpine's packages under their own licences.
+Inkwell's own code is under the MIT licence in `LICENSE`. The Doom port in `src/doom/` is under the GNU GPL version 2, like the Doom source it comes from. The fonts are under the SIL Open Font License, except the DejaVu chess symbols, which are under the Bitstream Vera licence. Each licence is in `fonts/`. The release image also contains Alpine's packages under their own licences.
