@@ -5,6 +5,7 @@
  * `quill` typed in the terminal starts this too.
  * Usage: quill-code             a conversation
  *        quill-code "question"  one answer
+ *        quill-code --run "question"  one answer, then run its code
  * QUILL_MODEL=quick, smart or coder picks the model. */
 #include <ctype.h>
 #include <errno.h>
@@ -21,7 +22,9 @@
 #define PROMPT "/usr/local/share/quill/code.txt"
 
 static const struct { const char *file, *name, *cache; int ctx, max; } MODEL_LIST[] = {
-    {"qwen2.5-coder-0.5b-q4_0.gguf", "Qwen2.5 Coder 0.5B", "code-qwen.cache", 2048, 512},
+    /* 0.5B with a 2048 context left so little of the 512 MB that the model's
+     * pages were read back from storage for every token. 1024 fits. */
+    {"qwen2.5-coder-0.5b-q4_0.gguf", "Qwen2.5 Coder 0.5B", "code-qwen.cache", 1024, 384},
     {"smollm2-360m-q4_0.gguf", "SmolLM2 360M", "code-360m.cache", 1536, 400},
     {"smollm2-135m-q4_0.gguf", "SmolLM2 135M", "code-135m.cache", 1536, 400},
 };
@@ -242,6 +245,8 @@ static void help(void) {
 }
 
 int main(int argc, char **argv) {
+    int run_after = argc > 1 && !strcmp(argv[1], "--run");
+    if (run_after) { argv++; argc--; }
     signal(SIGINT, on_int);
     signal(SIGPIPE, SIG_IGN);
     if (start()) return 1;
@@ -253,7 +258,7 @@ int main(int argc, char **argv) {
     if (argc >= 2) {
         char q[4096] = "";
         for (int i = 1; i < argc; i++) { strncat(q, argv[i], sizeof q - strlen(q) - 2); strcat(q, " "); }
-        ask(q);
+        if (!ask(q) && run_after) run_code();
     } else {
         printf("Ready. /help lists the commands.\n");
         for (;;) {
