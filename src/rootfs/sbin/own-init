@@ -55,6 +55,31 @@ ifconfig lo 127.0.0.1 up
     fi
 ) &
 
+# The clock: once Wi-Fi has a route, set it from the network and save it to
+# the hardware clock (which keeps UTC), then again every six hours.
+(
+    while :; do
+        if route -n | grep -q '^0\.0\.0\.0' && timeout 30 ntpd -n -q -p time.cloudflare.com -p pool.ntp.org >/dev/null 2>&1; then
+            hwclock -w -u
+            sleep 21600
+        else
+            sleep 120
+        fi
+    done
+) &
+
+# The battery, every ten minutes, for the graph in Settings. The log keeps
+# about a week.
+(
+    B=/sys/class/power_supply/max77696-battery
+    LOG=/mnt/us/linux/battery.log
+    while :; do
+        echo "$(date +%s) $(cat $B/capacity) $(cat $B/status)" >> $LOG
+        if [ "$(wc -l < $LOG)" -gt 1500 ]; then tail -n 1000 $LOG > $LOG.new && mv $LOG.new $LOG; fi
+        sleep 600
+    done
+) &
+
 # Once the home screen has stayed up: re-arm own Linux as the default boot,
 # and let the CPU slow down when idle. Amazon's boot pins it at full speed
 # and only relaxes it when its own home screen loads, which never happens here.
