@@ -162,7 +162,10 @@ static void draw_chat(void) {
 static void draw_field(const char *buf) {
     int x = MARGIN, w = W - 2 * MARGIN;
     fill(0, FIELD_Y2 - 8, W, FIELD_H2 + 16, WHITE);
-    rrect_fill(x, FIELD_Y2, w, FIELD_H2, FIELD_H2 / 2.0f, 0xEC);
+    /* 0xF0 is the lightest level the panel stores (it keeps the top four bits),
+     * so the fast A2 refresh treats it as white and each keystroke shows at once.
+     * A2 leaves pixels that start out grey alone, which hid typing on 0xEC. */
+    rrect_fill(x, FIELD_Y2, w, FIELD_H2, FIELD_H2 / 2.0f, 0xF0);
     char fit[1100];
     const char *p = buf;
     while (*p && text_width(&f_ui, 38, p) > w - 90) { p++; while ((*p & 0xC0) == 0x80) p++; }
