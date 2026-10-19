@@ -4,6 +4,9 @@
 // over stdin and stdout:
 //   in:  U <message>   ask; S   stop the current answer; R   start a new chat
 //   out: READY once, then T <piece> per token (newlines as \n), then END.
+// Messages escape newlines and backslashes the same way, so a whole file
+// can be sent. INKLLM_CTX (1024), INKLLM_MAX (240 tokens per answer) and
+// INKLLM_TEMP (0.55) change the defaults; quill-code uses longer answers.
 // Usage: inkllm model.gguf system.txt cache.bin
 #include "llama.h"
 #include <cstdio>
@@ -67,6 +70,21 @@ static bool reset(const char *cache) {
     return true;
 }
 
+static int env_int(const char *name, int def) {
+    const char *v = getenv(name);
+    return v && atoi(v) > 0 ? atoi(v) : def;
+}
+
+// Undoes the \n and \\ escapes of a message.
+static std::string unescape(const char *s) {
+    std::string out;
+    for (; *s; s++) {
+        if (*s == '\\' && s[1]) { s++; out += *s == 'n' ? '\n' : *s; }
+        else out += *s;
+    }
+    return out;
+}
+
 static double now_s() {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
@@ -101,7 +119,10 @@ int main(int argc, char **argv) {
     if (!model) { say("ERR", "model would not load"); return 1; }
     vocab = llama_model_get_vocab(model);
     llama_context_params cp = llama_context_default_params();
-    cp.n_ctx = 1024;
+    cp.n_ctx = env_int("INKLLM_CTX", 1024);
+    const int max_answer = env_int("INKLLM_MAX", 240);
+    const char *temp_s = getenv("INKLLM_TEMP");
+    const float temp = temp_s && atof(temp_s) > 0 ? (float)atof(temp_s) : 0.55f;
     cp.n_batch = 64;
     cp.n_threads = cp.n_threads_batch = 1; // one core
     // An f32 cache: the Cortex-A9 has no fp16 hardware, so f16 attention is scalar.
@@ -126,22 +147,27 @@ int main(int argc, char **argv) {
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.1f, 0.0f, 0.0f));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(30));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.85f, 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.55f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist((uint32_t)time(nullptr)));
     say("READY", "");
 
     // Unbuffered, so poll() on stdin sees an S that arrives mid-answer.
     setvbuf(stdin, nullptr, _IONBF, 0);
-    char line[4096];
+    static char line[65536];
     while (fgets(line, sizeof line, stdin)) {
         line[strcspn(line, "\n")] = 0;
         if (!strcmp(line, "R")) { reset(argv[3]); say("END", ""); continue; }
         if (strncmp(line, "U ", 2)) continue;
-        std::string turn = std::string("<|im_start|>user\n") + (line + 2) + "<|im_end|>\n<|im_start|>assistant\n";
+        std::string turn = std::string("<|im_start|>user\n") + unescape(line + 2) + "<|im_end|>\n<|im_start|>assistant\n";
         std::vector<llama_token> t = tokenize(turn, true);
-        if (n_past + (int)t.size() + 260 > (int)llama_n_ctx(ctx)) reset(argv[3]);
+        if (n_past + (int)t.size() + max_answer + 20 > (int)llama_n_ctx(ctx)) reset(argv[3]);
+        if (n_past + (int)t.size() + max_answer + 20 > (int)llama_n_ctx(ctx)) {
+            say("ERR", "that message is too long for the model's memory");
+            say("END", "");
+            continue;
+        }
         if (!eval(t)) { say("ERR", "decode failed"); say("END", ""); continue; }
-        for (int i = 0; i < 240; i++) {
+        for (int i = 0; i < max_answer; i++) {
             struct pollfd pf = {0, POLLIN, 0};
             if (poll(&pf, 1, 0) > 0) {
                 char cmd[64];
