@@ -4,7 +4,8 @@
  * from its own error output, saved, or given a file of yours to read.
  * `quill` typed in the terminal starts this too.
  * Usage: quill-code             a conversation
- *        quill-code "question"  one answer */
+ *        quill-code "question"  one answer
+ * QUILL_MODEL=quick, smart or coder picks the model. */
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -32,6 +33,14 @@ static volatile sig_atomic_t interrupted;
 static void on_int(int s) { (void)s; interrupted = 1; }
 
 static int start(void) {
+    /* QUILL_MODEL=coder, smart or quick picks one; otherwise the best installed */
+    const char *want = getenv("QUILL_MODEL");
+    if (want) {
+        int k = !strcmp(want, "coder") ? 0 : !strcmp(want, "smart") ? 1 : !strcmp(want, "quick") ? 2 : -1;
+        char p[200];
+        if (k >= 0) snprintf(p, sizeof p, MODELS "%s", MODEL_LIST[k].file);
+        if (k >= 0 && access(p, R_OK) == 0) model = k;
+    }
     for (int i = 0; i < 3 && model < 0; i++) {
         char p[200];
         snprintf(p, sizeof p, MODELS "%s", MODEL_LIST[i].file);
