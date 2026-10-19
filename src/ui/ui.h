@@ -6,6 +6,7 @@
 #include "eink.h"
 #include "gfx.h"
 #include "icons.h"
+#include "sleep.h"
 
 #define MARGIN 56
 #define HEADER_H 150

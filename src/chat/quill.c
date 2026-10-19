@@ -194,7 +194,10 @@ static void draw_header(void) {
 
 /* ---- main ------------------------------------------------------------------------- */
 
-int main(void) {
+int main(int argc, char **argv) {
+    /* typed in the terminal, quill means the coding assistant */
+    if (isatty(0) && isatty(1)) { execv("/usr/local/bin/quill-code", argv); }
+    (void)argc;
     if (fb_open() || fonts_load()) return 1;
     input_open();
     signal(SIGPIPE, SIG_IGN);
@@ -216,13 +219,16 @@ int main(void) {
     for (;;) {
         if (evq_head == evq_tail) {
             struct pollfd p[3] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}, {llm_out, POLLIN, 0}};
-            if (poll(p, 3, dirty || chat_dirty ? 500 : -1) > 0 && (p[0].revents || p[1].revents)) input_read();
+            int got = poll(p, 3, dirty || chat_dirty ? 500 : 60000);
+            if (got > 0 && (p[0].revents || p[1].revents)) input_read();
+            if (got == 0) idle_check();
         }
         while (llm_out >= 0 && llm_line(lnbuf, sizeof lnbuf)) {
             if (!strncmp(lnbuf, "READY", 5)) {
                 ready = 1;
                 if (!input[0]) { draw_field(input); refresh(0, FIELD_Y2 - 8, W, FIELD_H2 + 16, WF_GL16, 0, 0); }
             } else if (!strncmp(lnbuf, "T ", 2) && busy) {
+                idle_touch(); /* writing an answer counts as activity */
                 append_last(lnbuf + 2);
                 draw_chat();
                 refresh(0, TOP, W, CHAT_B - TOP, WF_DU, 0, 0);
@@ -296,7 +302,9 @@ int main(void) {
             if (!len || busy || !ready) continue;
             add_msg(1, input);
             add_msg(0, "");
-            dprintf(llm_in, "U %s\n", input);
+            dprintf(llm_in, "U ");
+            for (const char *c = input; *c; c++) dprintf(llm_in, *c == '\\' ? "\\\\" : "%c", *c);
+            dprintf(llm_in, "\n");
             input[0] = 0;
             busy = 1;
             draw_header();

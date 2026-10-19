@@ -462,7 +462,7 @@ int main(void) {
     for (;;) {
         int pending = 0;
         for (int r = 0; r < rows; r++) pending |= dirty_row[r];
-        int timeout = pending ? 15 : a2_count ? 2500 : -1;
+        int timeout = pending ? 15 : a2_count ? 2500 : 60000;
         if (evq_head == evq_tail) {
             struct pollfd p[3] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}, {master, POLLIN, 0}};
             int got = poll(p, 3, timeout), out = 0;
@@ -470,6 +470,7 @@ int main(void) {
             if (got > 0 && p[2].revents) {
                 ssize_t n = read(master, buf, sizeof buf);
                 if (n > 0) {
+                    idle_touch(); /* a program printing counts as activity */
                     for (ssize_t i = 0; i < n; i++) feed(buf[i]);
                     out = 1;
                     if (!dirty_since) dirty_since = now_s();
@@ -486,6 +487,7 @@ int main(void) {
             pending = 0;
             for (int r = 0; r < rows; r++) pending |= dirty_row[r];
             if (pending && (!out || now_s() - dirty_since > 0.12)) { flush(); dirty_since = 0; }
+            if (got == 0) idle_check();
             if (got == 0 && !pending && a2_count && now_s() - last_clean > 2) {
                 /* A calm GC16 pass clears the ghosting A2 leaves behind. */
                 refresh(0, term_y, W, rows * lh, WF_GC16, 0, 0);

@@ -1,8 +1,9 @@
 /* home: Inkwell's home screen. A serif clock and date, the apps listed in
  * /etc/own/apps (one "Label|icon|command" per line) as line-art icons, a
- * frontlight slider, and a night sky drawn on the panel while the device
- * sleeps. An app that exits 10, 11 or 12 (Settings does) asks own-init for
- * the stock Kindle UI, a reboot or power off, so home exits with that code. */
+ * frontlight slider. The sleep screen lives in sleep.h. An app that exits
+ * 10, 11 or 12 (Settings does) asks own-init for the stock Kindle UI, a
+ * reboot or power off, so home exits with that code. Dragging an app onto
+ * another place moves it there, and the order is saved to /etc/own/apps. */
 #include "ui.h"
 #include <signal.h>
 #include <time.h>
@@ -12,12 +13,11 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 
-#define IDLE_SLEEP_S (15 * 60)
 #define LIGHT "/sys/class/backlight/max77696-bl/"
 #define BATTERY "/sys/class/power_supply/max77696-battery/"
 
 typedef struct { char label[32], icon[16], cmd[200]; rect r; } app;
-static app apps[12];
+static app apps[16];
 static int napps;
 static char device_name[64] = "Inkwell";
 
@@ -52,7 +52,7 @@ static void load_config(void) {
     read_str("/etc/own/name", device_name, sizeof device_name);
     if (!device_name[0]) strcpy(device_name, "Inkwell");
     FILE *f = fopen("/etc/own/apps", "r");
-    while (f && fgets(line, sizeof line, f) && napps < 12) {
+    while (f && fgets(line, sizeof line, f) && napps < 16) {
         line[strcspn(line, "\n")] = 0;
         char *a = strchr(line, '|'), *b = a ? strchr(a + 1, '|') : 0;
         if (line[0] == '#' || !b) continue;
@@ -65,6 +65,18 @@ static void load_config(void) {
     if (f) fclose(f);
 }
 
+/* Writes the apps back in their current order, keeping the comment lines. */
+static void save_config(void) {
+    char line[300];
+    FILE *in = fopen("/etc/own/apps", "r"), *out = fopen("/etc/own/apps.new", "w");
+    if (!out) { if (in) fclose(in); return; }
+    while (in && fgets(line, sizeof line, in)) if (line[0] == '#') fputs(line, out);
+    if (in) fclose(in);
+    for (int i = 0; i < napps; i++) fprintf(out, "%s|%s|%s\n", apps[i].label, apps[i].icon, apps[i].cmd);
+    fclose(out);
+    rename("/etc/own/apps.new", "/etc/own/apps");
+}
+
 /* ---- layout ------------------------------------------------------------------- */
 
 #define STATUS_Y 34
@@ -73,6 +85,8 @@ static void load_config(void) {
 #define RULE_Y 440
 #define GRID_Y 490
 #define CELL_H 250
+#define GRID_BOTTOM 1262
+static int cell_h = CELL_H;
 #define SLIDER_Y 1290
 #define SLIDER_H 70
 
@@ -83,7 +97,10 @@ static void layout(void) {
     /* Three columns hold nine apps. More than that goes to four columns,
      * which keeps the rows the same height. */
     int ncol = napps > 9 ? 4 : 3, cw = (W - 2 * MARGIN) / ncol;
-    for (int i = 0; i < napps; i++) apps[i].r = (rect){MARGIN + (i % ncol) * cw, GRID_Y + (i / ncol) * CELL_H, cw, CELL_H};
+    /* A fourth row makes the cells shorter, and draw_app scales to them. */
+    int nrow = (napps + ncol - 1) / ncol;
+    cell_h = nrow * CELL_H > GRID_BOTTOM - GRID_Y ? (GRID_BOTTOM - GRID_Y) / nrow : CELL_H;
+    for (int i = 0; i < napps; i++) apps[i].r = (rect){MARGIN + (i % ncol) * cw, GRID_Y + (i / ncol) * cell_h, cw, cell_h};
     slider_x0 = MARGIN + 90;
     slider_x1 = W - MARGIN - 130;
     slider_r = (rect){MARGIN, SLIDER_Y - 20, W - 2 * MARGIN, SLIDER_H + 40};
@@ -129,12 +146,25 @@ static void draw_clock(void) {
     text(&f_serif_italic, 62, MARGIN, DATE_Y, date, 0x30);
 }
 
+static int app_at(int x, int y) {
+    for (int i = 0; i < napps; i++) if (hit(apps[i].r, x, y)) return i;
+    return -1;
+}
+
+/* A dark frame on the place an app is being dragged to. */
+static void drop_mark(int i, int on) {
+    rect r = apps[i].r;
+    if (on) { frame(r.x + 10, r.y + 4, r.w - 20, r.h - 8, 5, BLACK); refresh(r.x, r.y, r.w, r.h, WF_A2, 0, 0); }
+}
+
 static void draw_app(const app *a) {
     int cx = a->r.x + a->r.w / 2, cy = a->r.y + 92;
     fill(a->r.x, a->r.y, a->r.w, a->r.h, WHITE);
-    ring(cx, cy, 78, 3, 0x40);
-    icon(a->icon, cx, cy, 128);
-    text_center(&f_ui_bold, 32, cx, a->r.y + 186, a->label, BLACK);
+    float k = cell_h / (float)CELL_H;
+    cy = a->r.y + (int)(92 * k);
+    ring(cx, cy, 78 * k, 3, 0x40);
+    icon(a->icon, cx, cy, 128 * k);
+    text_center(&f_ui_bold, k < 1 ? 28 : 32, cx, a->r.y + (int)(186 * k) - (k < 1 ? 4 : 0), a->label, BLACK);
 }
 
 static int light_level(void) {
@@ -179,66 +209,6 @@ static void draw_home(int flash) {
     if (flash) flip_flash(); else flip();
 }
 
-/* ---- the sleep screen ------------------------------------------------------------- */
-
-static unsigned rng_state = 12345;
-static unsigned rng(void) { rng_state = rng_state * 1103515245u + 12345u; return rng_state >> 8; }
-
-/* Grey with ordered dithering between the panel's 16 levels, so gradients
- * come out smooth instead of banded. */
-static inline unsigned char shade(int x, int y, int v) {
-    int t = bayer8[(y & 7) * 8 + (x & 7)] * 4, l = (v * 15 + t) / 255;
-    return (unsigned char)((l > 15 ? 15 : l) * 17);
-}
-
-static void draw_night(void) {
-    int horizon = H - 330;
-    for (int y = 0; y < H; y++) {
-        int v = 18 + 70 * y / H;
-        unsigned char *row = fb + y * PITCH;
-        for (int x = 0; x < W; x++) row[x] = shade(x, y, v);
-    }
-    rng_state = (unsigned)time(0) / 3600;
-    for (int i = 0; i < 160; i++) {
-        float x = rng() % W, y = rng() % horizon, r = 1.2f + (rng() % 100) / 40.0f;
-        disc(x, y, r, 0xF0);
-        if (r > 3.2f) { line(x - r * 3, y, x + r * 3, y, 1.4f, 0xC0); line(x, y - r * 3, x, y + r * 3, 1.4f, 0xC0); }
-    }
-    /* a crescent moon: the lit disc minus a slightly offset shadow disc */
-    float mx = W * 0.68f, my = 330, mr = 140, sx = mx + 58, sy = my - 40, sr = 128;
-    for (int y = (int)(my - mr - 2); y <= (int)(my + mr + 2); y++)
-        for (int x = (int)(mx - mr - 2); x <= (int)(mx + mr + 2); x++) {
-            float lit = cover(hypotf(x + 0.5f - mx, y + 0.5f - my) - mr);
-            float dark = cover(hypotf(x + 0.5f - sx, y + 0.5f - sy) - sr);
-            blend(x, y, 0xF4, lit * (1 - dark));
-        }
-    /* two ranges of hills */
-    float back[2 * 66], front[2 * 66];
-    for (int i = 0; i <= 63; i++) {
-        float x = W * i / 63.0f;
-        back[2 * i] = x; back[2 * i + 1] = horizon + 40 - 70 * sinf(x / 170.0f + 1) - 40 * sinf(x / 61.0f);
-        front[2 * i] = x; front[2 * i + 1] = horizon + 150 - 50 * sinf(x / 230.0f + 3) - 22 * sinf(x / 47.0f);
-    }
-    back[128] = W; back[129] = H; back[130] = 0; back[131] = H;
-    front[128] = W; front[129] = H; front[130] = 0; front[131] = H;
-    poly_fill(back, 66, 0x30);
-    poly_fill(front, 66, BLACK);
-    text_center(&f_serif_italic, 78, W / 2, H - 250, "Inkwell is asleep", 0xF0);
-    text_center(&f_ui, 32, W / 2, H - 140, "press the power button to wake", 0xB0);
-}
-
-static void sleep_device(void) {
-    int light = read_int(LIGHT "brightness");
-    draw_night();
-    refresh_all();
-    write_int(LIGHT "brightness", 0);
-    sync();
-    FILE *f = fopen("/sys/power/state", "w");
-    if (f) { fputs("mem\n", f); fclose(f); } /* returns once the power button wakes us */
-    write_int(LIGHT "brightness", light);
-    input_drain();
-}
-
 /* ---- actions ----------------------------------------------------------------------- */
 
 static int run_app(const app *a) {
@@ -273,26 +243,37 @@ int main(int argc, char **argv) {
     load_config();
     layout();
     draw_home(1);
-    time_t last_touch = time(0);
+    want_moves = 1; /* to follow an app being dragged */
+    int drag = -1, over = -1;
     for (;;) {
         time_t now = time(0);
         event e = input_wait((60 - now % 60) * 1000);
         now = time(0);
         if (e.type == EV_NONE) {
-            if (now - last_touch > IDLE_SLEEP_S) { sleep_device(); last_touch = time(0); draw_home(1); continue; }
             draw_status();
             draw_clock();
             refresh(0, 0, W, RULE_Y - 20, WF_GL16, 0, 0);
             continue;
         }
-        last_touch = now;
-        if (e.type == EV_POWER) { sleep_device(); last_touch = time(0); draw_home(1); continue; }
+        if (e.type == EV_POWER) { sleep_now(); draw_home(1); continue; }
+        if (e.type == EV_MOVE) {
+            int j = drag >= 0 ? app_at(e.x, e.y) : -1;
+            if (j != over) {
+                if (over >= 0 && over != drag) { draw_app(&apps[over]); refresh(apps[over].r.x, apps[over].r.y, apps[over].r.w, apps[over].r.h, WF_GL16, 0, 0); }
+                over = j;
+                if (over >= 0 && over != drag) drop_mark(over, 1);
+            }
+            continue;
+        }
         if (e.type == EV_DOWN) {
+            drag = over = -1;
             if (hit(slider_r, e.x, e.y)) { set_light_from(e.x); draw_slider(); refresh(slider_r.x, slider_r.y, slider_r.w, slider_r.h, WF_A2, 0, 0); continue; }
+            drag = app_at(e.x, e.y);
             for (int i = 0; i < napps; i++)
                 if (hit(apps[i].r, e.x, e.y)) {
                     int cx = apps[i].r.x + apps[i].r.w / 2;
-                    press_on((rect){cx - 84, apps[i].r.y + 6, 168, 172});
+                    int r = (int)(84 * cell_h / (float)CELL_H);
+                    press_on((rect){cx - r, apps[i].r.y + 6, 2 * r, (int)(172 * cell_h / (float)CELL_H)});
                 }
             continue;
         }
@@ -303,6 +284,21 @@ int main(int argc, char **argv) {
             refresh(slider_r.x, slider_r.y, slider_r.w, slider_r.h, WF_GL16, 0, 0);
             continue;
         }
+        /* lifted on another place, well away from where it landed: a move */
+        int to = app_at(e.ux, e.uy), from = drag;
+        drag = over = -1;
+        if (from >= 0 && to >= 0 && to != from && abs(e.ux - e.x) + abs(e.uy - e.y) > 80) {
+            press_forget();
+            app moved = apps[from];
+            if (from < to) memmove(&apps[from], &apps[from + 1], sizeof *apps * (to - from));
+            else memmove(&apps[to + 1], &apps[to], sizeof *apps * (from - to));
+            apps[to] = moved;
+            layout();
+            save_config();
+            draw_home(0);
+            continue;
+        }
+        if (from >= 0 && to != from) { press_off(); draw_home(0); continue; } /* dragged off the grid: nothing */
         int launched = 0;
         for (int i = 0; i < napps; i++) {
             if (!hit(apps[i].r, e.x, e.y)) continue;
@@ -311,7 +307,6 @@ int main(int argc, char **argv) {
             int rc = run_app(&apps[i]);
             if (rc >= 10 && rc <= 12) return rc;
             draw_home(0);
-            last_touch = time(0);
             break;
         }
         if (!launched) press_off();
