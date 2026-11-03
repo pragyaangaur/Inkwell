@@ -28,8 +28,8 @@ These clips are from a real Kindle Paperwhite 3. Some are sped up, and each capt
 - **TriKing** is a falling-block game where every piece has three cells. You tap the board to rotate, drag to move and flick down to drop.
 - **Browser** fetches a page, keeps the headings, paragraphs and links, and lays them out as pages you turn. It searches with Bing.
 - **Chess** plays against Inkwell's own engine, a small alpha-beta search written for this processor. Easy answers at once, Medium thinks for up to two seconds and Hard for up to six. You can play either colour and take moves back, and the game is saved to the `chess` folder, so you can carry on later.
-- **Terminal** runs a shell on the Kindle with an extra row of keys for Esc, Tab, Ctrl and the arrows. It handles full-screen programs such as `vi` and `top`, and `ssh` connects to the computer on the other end of the USB cable. Hiding the keyboard shows the whole screen. Python 3 is installed.
-- **Quill in the terminal.** Typing `quill` there starts a coding assistant. You ask for a program in plain words, `/run` runs the code from the last answer with Python or `sh`, `/fix` sends its error back for a corrected version, `/save` writes it to a file and `/read` shows Quill one of your files. It uses Qwen2.5 Coder 0.5B when that model is installed, which writes about half a word per second, so a short program takes a few minutes.
+- **Terminal** runs a shell on the Kindle with an extra row of keys for Esc, Tab, Ctrl and the arrows. It handles full-screen programs such as `vi` and `top`, and `ssh` connects to the computer on the other end of the USB cable. Hiding the keyboard shows the whole screen. Python 3 is installed, and `inkfetch` prints a system card with a Mandelbrot set that the Kindle works out itself.
+- **Quill in the terminal.** Typing `quill` there starts a coding assistant. You ask for a program in plain words, `/run` runs the code from the last answer with Python or `sh`, `/fix` sends its error back for a corrected version, `/save` writes it to a file and `/read` shows Quill one of your files. `quill --run "question"` answers once and runs the code straight away. It uses Qwen2.5 Coder 0.5B when that model is installed, which writes about half a word per second, so a short program takes a few minutes.
 - **Notes** saves plain text files to the `notes` folder on the Kindle's drive, so you can read them on a computer.
 - **Sketch** is a drawing pad that saves pictures to the `sketches` folder.
 - **Wi-Fi** scans for networks and joins them with the on-screen keyboard.
@@ -45,15 +45,15 @@ The home screen also has a clock, the date, the battery and a frontlight slider.
 | :---: | :---: | :---: |
 | <img src="docs/images/chess.png" width="250" alt="A chess game in the opening, with Inkwell having played Nc6"> | <img src="docs/images/terminal.png" width="250" alt="The terminal running top, with the extra keys above the keyboard"> | <img src="docs/images/settings.png" width="250" alt="Settings with a graph of the battery over the last day"> |
 
-| Quill | TriKing | Sleep screen | Notes | Settings |
+| Quill | TriKing | Sleep screen | Notes | inkfetch |
 | :---: | :---: | :---: | :---: | :---: |
-| <img src="docs/images/quill.png" width="150" alt="Quill answering a question about asteroids"> | <img src="docs/images/triking.png" width="150" alt="TriKing, a falling-block game with three-cell pieces"> | <img src="docs/images/sleep.png" width="150" alt="A crescent moon over hills with the words Inkwell is asleep"> | <img src="docs/images/notes.png" width="150" alt="A note being typed with the keyboard"> | <img src="docs/images/settings.png" width="150" alt="Settings with Restart, Power off and device details"> |
+| <img src="docs/images/quill.png" width="150" alt="Quill answering a question about asteroids"> | <img src="docs/images/triking.png" width="150" alt="TriKing, a falling-block game with three-cell pieces"> | <img src="docs/images/sleep.png" width="150" alt="A crescent moon over hills with the words Inkwell is asleep"> | <img src="docs/images/notes.png" width="150" alt="A note being typed with the keyboard"> | <img src="docs/images/inkfetch.png" width="150" alt="inkfetch in the terminal, a system card above a Mandelbrot set drawn in text"> |
 
 ## Install
 
 You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) that is already jailbroken. [kindlemodding.org](https://kindlemodding.org) explains how to jailbreak it, for example with WinterBreak. Inkwell was built and tested on firmware 5.16.2.1.1, and it needs about 1.5 GB of free space.
 
-1. Download `Inkwell-1.1.0.zip` from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
+1. Download `Inkwell-1.2.0.zip` from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
 2. Connect the Kindle to your computer with a USB cable, so it shows up as a drive.
 3. Copy both folders to the top of the Kindle's drive. The `documents` folder already exists there, so let your computer merge the two.
 4. Eject the Kindle and unplug it.
