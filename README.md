@@ -53,7 +53,7 @@ The home screen also has a clock, the date, the battery and a frontlight slider.
 
 You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) that is already jailbroken. [kindlemodding.org](https://kindlemodding.org) explains how to jailbreak it, for example with WinterBreak. Inkwell was built and tested on firmware 5.16.2.1.1, and it needs about 1.5 GB of free space.
 
-1. Download `Inkwell-1.2.0.zip` from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
+1. Download the `Inkwell` zip file from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
 2. Connect the Kindle to your computer with a USB cable, so it shows up as a drive.
 3. Copy both folders to the top of the Kindle's drive. The `documents` folder already exists there, so let your computer merge the two.
 4. Eject the Kindle and unplug it.
