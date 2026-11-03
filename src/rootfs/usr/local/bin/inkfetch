@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""inkfetch: a system card for Inkwell, in the spirit of neofetch, with a
+Mandelbrot set worked out on the Kindle's own processor underneath.
+It waits a few seconds for the terminal to grow (hide the keyboard), so
+the whole card fits on the screen."""
+import os
+import shutil
+import time
+
+B, R, N = "\033[1m", "\033[7m", "\033[0m"
+
+
+def read(path, default="?"):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def wait_for_room(rows=34, secs=8):
+    end = time.time() + secs
+    while time.time() < end and shutil.get_terminal_size().lines < rows:
+        time.sleep(0.2)
+
+
+def bar(frac, width=14):
+    full = int(round(frac * width))
+    return R + " " * full + N + "░" * (width - full)
+
+
+def info():
+    up = float(read("/proc/uptime", "0").split()[0])
+    mem = {}
+    for line in read("/proc/meminfo", "").splitlines():
+        k, _, v = line.partition(":")
+        if v.split():
+            mem[k] = int(v.split()[0]) // 1024
+    used = mem["MemTotal"] - mem["MemFree"] - mem.get("Buffers", 0) - mem.get("Cached", 0)
+    st = os.statvfs("/mnt/us")
+    free_gb = st.f_bavail * st.f_frsize / 2**30
+    batt = int(read("/sys/class/power_supply/max77696-battery/capacity", "0"))
+    gov = read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+    models = os.listdir("/mnt/us/linux/models") if os.path.isdir("/mnt/us/linux/models") else []
+    ai = "Qwen2.5 Coder 0.5B" if any("qwen" in m for m in models) else "SmolLM2 135M"
+    apps = sum(1 for l in open("/etc/own/apps") if "|" in l and not l.startswith("#"))
+    return [
+        (B + "root" + N + "@" + B + "inkwell" + N, None),
+        ("─" * 24, None),
+        ("Host", "Kindle Paperwhite 3"),
+        ("OS", "Inkwell, Alpine " + read("/etc/alpine-release")),
+        ("Kernel", os.uname().release),
+        ("CPU", "i.MX6SL, 1 GHz A9 (" + gov + ")"),
+        ("Display", "1072x1448 e-ink, 300 dpi"),
+        ("Uptime", "%dh %02dm" % (up // 3600, up % 3600 // 60)),
+        ("Apps", "%d, all in C" % apps),
+        ("AI", ai + ", offline"),
+        ("Memory", bar(used / mem["MemTotal"]) + " %d/%d MB" % (used, mem["MemTotal"])),
+        ("Battery", bar(batt / 100) + " %d%%" % batt),
+        ("Storage", "%.1f GB free" % free_gb),
+    ]
+
+
+KINDLE = [
+    "╭─────────────╮",
+    "│┌───────────┐│",
+    "││  ───────  ││",
+    "││  ───────  ││",
+    "││  ─────    ││",
+    "││           ││",
+    "││  " + B + "INKWELL" + N + "  ││",
+    "││           ││",
+    "││  ───────  ││",
+    "││  ──────   ││",
+    "│└───────────┘│",
+    "│    kindle   │",
+    "╰─────────────╯",
+]
+
+
+def card():
+    rows = info()
+    for i in range(max(len(KINDLE), len(rows))):
+        left = KINDLE[i] if i < len(KINDLE) else " " * 15
+        if i < len(rows):
+            k, v = rows[i]
+            right = k if v is None else B + ("%-8s" % k) + N + v
+        else:
+            right = ""
+        print(" " + left + "   " + right)
+
+
+def mandelbrot(width, height):
+    shades = " .:-=+*#%@"
+    t0 = time.time()
+    lines = []
+    for y in range(height):
+        ci = (y / (height - 1)) * 2.4 - 1.2
+        row = []
+        for x in range(width):
+            cr = (x / (width - 1)) * 3.3 - 2.3
+            zr = zi = 0.0
+            n = 0
+            while n < 40 and zr * zr + zi * zi < 4.0:
+                zr, zi = zr * zr - zi * zi + cr, 2 * zr * zi + ci
+                n += 1
+            row.append("█" if n == 40 else shades[n * len(shades) // 40])
+        lines.append("".join(row))
+    return lines, time.time() - t0
+
+
+def main():
+    wait_for_room()
+    size = shutil.get_terminal_size()
+    print("\033[2J\033[H", end="")
+    card()
+    print()
+    h = max(8, size.lines - 19)
+    lines, secs = mandelbrot(size.columns - 2, h)
+    for l in lines:
+        print(" " + l)
+    print(" " + B + "mandelbrot" + N + ": %d x %d, %d ms of Python on the Kindle" % (size.columns - 2, h, secs * 1000))
+
+
+if __name__ == "__main__":
+    main()
