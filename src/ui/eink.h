@@ -187,10 +187,18 @@ static const glyph *glyph_get(font *f, int px, int c) {
     glyph *g = &glyph_cache[hsh];
     if (g->bm && g->f == f && g->px == px && g->c == c) return g;
     if (g->bm) stbtt_FreeBitmap(g->bm, 0);
+    g->f = f; g->px = px; g->c = c;
+    /* None of the fonts has emoji. Leave them out instead of drawing a box,
+     * with the joiners and variation selectors that build them. */
+    int emoji = (c >= 0x1F000 && c <= 0x1FAFF) || (c >= 0x2600 && c <= 0x27BF) || (c >= 0xFE00 && c <= 0xFE0F) || c == 0x200D;
+    if (emoji && !stbtt_FindGlyphIndex(&f->info, c)) {
+        g->adv = g->w = g->h = 0;
+        g->bm = calloc(1, 1);
+        return g;
+    }
     float sc = stbtt_ScaleForPixelHeight(&f->info, px);
     int adv, lsb;
     stbtt_GetCodepointHMetrics(&f->info, c, &adv, &lsb);
-    g->f = f; g->px = px; g->c = c;
     g->adv = (int)(adv * sc + 0.5f);
     g->bm = stbtt_GetCodepointBitmap(&f->info, sc, sc, c, &g->w, &g->h, &g->ox, &g->oy);
     if (!g->bm) g->bm = calloc(1, 1), g->w = g->h = 0;
