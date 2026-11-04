@@ -1,0 +1,28 @@
+#!/bin/sh
+# getmodel: downloads Quill's optional models from Hugging Face over Wi-Fi
+# and checks them, so they never have to be copied over by hand.
+#   getmodel smart   SmolLM2 360M, the smart model for Quill (220 MB)
+#   getmodel coder   Qwen2.5 Coder 0.5B, for quill in the terminal (340 MB)
+# An interrupted download carries on where it stopped when run again.
+M=${GETMODEL_DIR:-/mnt/us/linux/models}
+HF=https://huggingface.co/bartowski
+case "$1" in
+smart) repo=SmolLM2-360M-Instruct-GGUF file=SmolLM2-360M-Instruct-Q4_0.gguf name=smollm2-360m-q4_0.gguf
+    sum=c3608933eb6e5763b87f769bda40c204dc158333668c7af214644fe39da58627 ;;
+coder) repo=Qwen2.5-Coder-0.5B-Instruct-GGUF file=Qwen2.5-Coder-0.5B-Instruct-Q4_0.gguf name=qwen2.5-coder-0.5b-q4_0.gguf
+    sum=bf52e650e19a33d965431b9b13d1ec2422c2a2be12274eaef1f15f3d5a330c6c ;;
+*) echo "usage: getmodel smart|coder"; exit 1 ;;
+esac
+mkdir -p $M
+if [ -f "$M/$name" ]; then echo "$name is already installed."; exit 0; fi
+echo "Downloading $file from Hugging Face..."
+curl -fL --retry 5 -C - --progress-bar -o "$M/$name.part" "$HF/$repo/resolve/main/$file" || {
+    echo "The download stopped. Is Wi-Fi on? Run getmodel $1 again to carry on."; exit 1; }
+echo "Checking it..."
+if ! echo "$sum  $M/$name.part" | sha256sum -c -s; then
+    rm -f "$M/$name.part"
+    echo "The file did not match its checksum and was removed. Try again."; exit 1
+fi
+mv "$M/$name.part" "$M/$name"
+sync
+echo "Done. $name is in linux/models."

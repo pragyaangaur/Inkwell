@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds the release: dist/Inkwell-<version>.zip, which unzips onto the
-# Kindle's drive as linux/ and documents/, plus the optional smart and coder
-# models.
+# Kindle's drive as linux/ and documents/. The optional smart and coder
+# models are not in the release, because getmodel fetches them from Hugging
+# Face on the Kindle.
 # The image carries no SSH keys and defaults to UTC.
 # Usage: tools/release.sh 1.0.0
 set -e
@@ -16,7 +17,5 @@ echo UTC > $R/linux/timezone
 cp downloads/models/SmolLM2-135M-Instruct-Q4_0.gguf $R/linux/models/smollm2-135m-q4_0.gguf
 cp kindle/documents/Inkwell\ -\ *.sh $R/documents/
 (cd $R && zip -q -r -9 "../../../dist/Inkwell-$V.zip" linux documents)
-cp downloads/models/SmolLM2-360M-Instruct-Q4_0.gguf dist/smollm2-360m-q4_0.gguf
-cp downloads/models/Qwen2.5-Coder-0.5B-Instruct-Q4_0.gguf dist/qwen2.5-coder-0.5b-q4_0.gguf
 (cd dist && shasum -a 256 * > SHA256SUMS)
 ls -l dist
