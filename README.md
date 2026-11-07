@@ -1,5 +1,7 @@
 # Inkwell
 
+Featured on Hackaday: [It's Alpine Linux, On A Kindle Paperwhite 3](https://hackaday.com/2026/11/06/its-alpine-linux-on-a-kindle-paperwhite-3/) (6 November 2026).
+
 Inkwell is a small Linux system of its own for the jailbroken Kindle Paperwhite 3. Amazon's bootloader and kernel still start the device, and everything after that is replaced: the home screen, the apps, Wi-Fi, USB networking and SSH all come from an Alpine Linux userspace built for the e-ink panel.
 
 It has a chatbot called Quill that runs a language model on the Kindle itself with no internet, and in the terminal Quill writes and runs code. It reads EPUB and PDF books, keeps arXiv papers for reading offline, and plays Doom, chess and the first version of Minecraft. It also has a reading web browser, notes, a sketchpad and a falling-block game called TriKing. You install it by copying one folder to the Kindle and tapping one item in the library, and one more tap brings the normal Kindle back.
