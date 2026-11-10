@@ -1,6 +1,7 @@
-/* kio.h: the Kindle PW3 platform layer shared by the games. Freestanding:
- * raw ARM EABI syscalls, /dev/fb0 plus the Lab126 E-ink refresh ioctl,
- * the cyttsp4 multitouch panel and the power button. Include it once. */
+/* kio.h: the Kindle platform layer shared by the games, for the Paperwhite 3
+ * and 4. Freestanding: raw ARM EABI syscalls, /dev/fb0 plus the Lab126 E-ink
+ * refresh ioctl, the multitouch panel (cyttsp4 or goodix) and the power
+ * button. The board differences are the ones in ui/board.h. Include it once. */
 #ifndef KIO_H
 #define KIO_H
 typedef unsigned char u8;
@@ -94,9 +95,31 @@ unsigned long long __aeabi_idivmod(s32 n, s32 d) {
     return ((unsigned long long)(u32)r << 32) | (u32)q;
 }
 
+/* ---- the board ---------------------------------------------------------- */
+
+/* The PW3 kernel has no device tree. The PW4 says "amzn,imx6sll-rex". */
+static int is_pw4 = -1;
+static int board_pw4(void) {
+    if (is_pw4 >= 0) return is_pw4;
+    is_pw4 = 0;
+    char b[256];
+    int fd = (int)sopen("/proc/device-tree/compatible", 0);
+    if (fd < 0) return is_pw4;
+    long n = sread(fd, b, sizeof b - 1);
+    sys(S_CLOSE, fd, 0, 0, 0, 0, 0);
+    for (long i = 0; i + 7 <= n; i++) {
+        const char *w = "imx6sll";
+        int j = 0;
+        while (j < 7 && b[i + j] == w[j]) j++;
+        if (j == 7) { is_pw4 = 1; break; }
+    }
+    return is_pw4;
+}
+
 /* ---- framebuffer and E-ink refresh ------------------------------------ */
 
 struct mxcfb_rect { u32 top, left, width, height; };
+/* The PW3's Lab126 layout, _IOW(F, 0x2E, 72 bytes): its kernel rejects 76. */
 struct mxcfb_update_data {
     struct mxcfb_rect region;
     u32 waveform, mode, marker, hist_bw, hist_gray;
@@ -104,12 +127,24 @@ struct mxcfb_update_data {
     u32 flags;
     u32 alt[7];
 };
-#define MXCFB_SEND_UPDATE 0x4048462Eu /* _IOW(F, 0x2E, 72 bytes): the PW3 kernel rejects the 76-byte form */
+/* The PW4's, 80 bytes in NXP's order: temp and flags straight after the marker. */
+struct mxcfb_update_data_pw4 {
+    struct mxcfb_rect region;
+    u32 waveform, mode, marker;
+    s32 temp;
+    u32 flags;
+    s32 dither_mode, quant_bit;
+    u32 alt[7];
+    u32 rest[2];
+};
+#define MXCFB_SEND_UPDATE 0x4048462Eu
+#define MXCFB_SEND_UPDATE_PW4 0x4050462Eu
 #define MXCFB_WAIT_FOR_UPDATE_COMPLETE 0xC008462Fu
 #define WF_DU 1
 #define WF_GC16 2
-#define WF_A2 4
+#define WF_A2 4 /* 6 on the PW4, which refresh() translates */
 #define TEMP_AUTO 0x1001
+#define TEMP_AMBIENT 0x1000
 #define FLAG_MONO 0x02
 
 static int fbfd;
@@ -119,18 +154,31 @@ static u32 marker;
 static int refresh_errors;
 
 static void refresh(int x, int y, int w, int h, int wf, int full, int wait) {
-    struct mxcfb_update_data u;
-    memset(&u, 0, sizeof u);
-    u.region.top = y; u.region.left = x; u.region.width = w; u.region.height = h;
-    u.waveform = wf;
-    u.mode = full;
-    u.marker = ++marker;
-    u.hist_bw = WF_DU;
-    u.hist_gray = WF_GC16;
-    u.temp = TEMP_AUTO;
-    u.flags = wf == WF_A2 ? FLAG_MONO : 0;
     double t0 = now();
-    long r = sioctl(fbfd, MXCFB_SEND_UPDATE, &u);
+    long r;
+    if (board_pw4()) {
+        struct mxcfb_update_data_pw4 u;
+        memset(&u, 0, sizeof u);
+        u.region.top = y; u.region.left = x; u.region.width = w; u.region.height = h;
+        u.waveform = wf == WF_A2 ? 6 : wf;
+        u.mode = full;
+        u.marker = ++marker;
+        u.temp = TEMP_AMBIENT;
+        u.flags = wf == WF_A2 ? FLAG_MONO : 0;
+        r = sioctl(fbfd, MXCFB_SEND_UPDATE_PW4, &u);
+    } else {
+        struct mxcfb_update_data u;
+        memset(&u, 0, sizeof u);
+        u.region.top = y; u.region.left = x; u.region.width = w; u.region.height = h;
+        u.waveform = wf;
+        u.mode = full;
+        u.marker = ++marker;
+        u.hist_bw = WF_DU;
+        u.hist_gray = WF_GC16;
+        u.temp = TEMP_AUTO;
+        u.flags = wf == WF_A2 ? FLAG_MONO : 0;
+        r = sioctl(fbfd, MXCFB_SEND_UPDATE, &u);
+    }
     if (r < 0 && refresh_errors++ < 5) { logs("SEND_UPDATE failed "); logn(r); logs("\n"); }
     if (wait && r >= 0) {
         u32 m[2] = {marker, 0};
@@ -216,7 +264,7 @@ static int text_w(const char *t, int s) { int n = 0; while (t[n]) n++; return n 
 typedef struct { s32 tv_sec, tv_usec; u16 type, code; s32 value; } input_event;
 typedef struct { s32 value, min, max, fuzz, flat, res; } absinfo;
 
-static int touchfd = -1, keyfd = -1;
+static int touchfd = -1, keyfd = -1, keyfd2 = -1; /* the PW4 has two power key devices */
 static int tx0, tx1, ty0, ty1;
 static struct { int id, x, y, px, py, btn, fresh; } slot[NSLOT];
 static int cur_slot;
@@ -244,8 +292,8 @@ static void open_input(void) {
             touchfd = fd; tx0 = ax.min; tx1 = ax.max; ty0 = ay.min; ty1 = ay.max;
             logs(" touch x "); logn(tx0); logs(".."); logn(tx1);
             logs(" y "); logn(ty0); logs(".."); logn(ty1);
-        } else if (keyfd < 0 && has(name, "onkey")) {
-            keyfd = fd;
+        } else if ((keyfd < 0 || keyfd2 < 0) && (has(name, "onkey") || has(name, "power"))) {
+            if (keyfd < 0) keyfd = fd; else keyfd2 = fd;
             logs(" power");
         } else {
             sys(S_CLOSE, fd, 0, 0, 0, 0, 0);
@@ -276,9 +324,11 @@ static int poll_input(void) {
             }
         }
     }
-    while (keyfd >= 0 && (n = sread(keyfd, ev, sizeof ev)) > 0)
-        for (int i = 0; i < n / (long)sizeof(input_event); i++)
-            if (ev[i].type == EV_KEY && ev[i].code == KEY_POWER && ev[i].value == 1) { logs("power button\n"); quit = 1; }
+    int kfd[2] = {keyfd, keyfd2};
+    for (int k = 0; k < 2; k++)
+        while (kfd[k] >= 0 && (n = sread(kfd[k], ev, sizeof ev)) > 0)
+            for (int i = 0; i < n / (long)sizeof(input_event); i++)
+                if (ev[i].type == EV_KEY && ev[i].code == KEY_POWER && ev[i].value == 1) { logs("power button\n"); quit = 1; }
     if (last_activity == 0) last_activity = now();
     if (now() - last_activity > IDLE_QUIT_S) { logs("idle, quitting\n"); quit = 1; }
     return quit;
@@ -293,6 +343,14 @@ static int fb_init(void) {
     u32 v[40], f[20];
     sioctl(fbfd, 0x4600, v); /* FBIOGET_VSCREENINFO */
     sioctl(fbfd, 0x4602, f); /* FBIOGET_FSCREENINFO */
+    /* The PW4 panel is mounted sideways: upright is rotate 3, and grayscale 1
+     * keeps 0xFF white (2, Amazon's setting, inverts it), as eink.h sets it. */
+    if (board_pw4() && (v[34] != 3 || v[7] != 1 || v[6] != 8)) {
+        v[34] = 3; v[7] = 1; v[6] = 8;
+        sioctl(fbfd, 0x4601, v); /* FBIOPUT_VSCREENINFO */
+        sioctl(fbfd, 0x4600, v);
+        sioctl(fbfd, 0x4602, f);
+    }
     W = (int)v[0]; H = (int)v[1]; BPP = (int)v[6]; PITCH = (int)f[11];
     logs("fb "); logn(W); logs("x"); logn(H); logs(" virt "); logn(v[2]); logs("x"); logn(v[3]);
     logs(" yoff "); logn(v[5]); logs(" bpp "); logn(BPP); logs(" pitch "); logn(PITCH);
@@ -313,6 +371,9 @@ __attribute__((naked, noreturn)) void _start(void) {
 }
 __attribute__((noreturn, used)) void kmain(void) {
     int r = app_main();
+    /* let the last update reach the panel before home draws over it (see
+     * wait_last_update in ui/eink.h) */
+    if (marker && fbfd > 0) { u32 m[2] = {marker, 0}; sioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m); }
     sys(S_EXIT, r, 0, 0, 0, 0, 0);
     for (;;) {}
 }

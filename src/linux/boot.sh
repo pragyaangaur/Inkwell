@@ -14,6 +14,9 @@ case "$0" in
 /tmp/*) ;;
 *) cp "$0" /tmp/ownlinux-boot.sh && exec sh /tmp/ownlinux-boot.sh ;;
 esac
+# Keep the log from growing on the userstore for ever: past 256 KB the old
+# one moves to boot.log.1, which replaces the one before.
+[ "$(wc -c < "$D/boot.log" 2>/dev/null || echo 0)" -gt 262144 ] && mv -f "$D/boot.log" "$D/boot.log.1"
 exec >>"$D/boot.log" 2>&1
 echo "=== $(date) boot"
 
@@ -63,12 +66,39 @@ for m in dev dev/pts proc sys; do mounted "$R/$m" || mount -o bind "/$m" "$R/$m"
 mkdir -p $R/mnt/us
 mounted $R/mnt/us || mount -o bind /mnt/base-us $R/mnt/us
 
+# What differs between Kindles. The PW3 (kernel 3.0) shows the userstore over
+# USB with g_file_storage and has an Atheros Wi-Fi chip. The PW4 (kernel 4.1)
+# uses g_mass_storage with its own product id and a Broadcom chip, whose
+# driver needs firmware paths. Its firmware lists all of that in
+# platform_variables, which Amazon's own boot scripts read too.
+eval "$(grep -E '^(wifim_START_CMD_wifi|BOARD_ID_PRODUCT|BOARD_STALL)=' /etc/sysconfig/platform_variables 2>/dev/null)"
+USB_DRIVE=$(lsmod | awk '$1 == "g_file_storage" || $1 == "g_mass_storage" {print $1; exit}')
+echo "board: $(tr '\0' ' ' < /proc/device-tree/compatible 2>/dev/null || echo pw3), usb drive ${USB_DRIVE:-none}"
+usb_drive() {
+    if [ "$USB_DRIVE" = g_mass_storage ]; then
+        if [ "$BOARD_STALL" = 0 ]; then
+            modprobe g_mass_storage file="" removable=1 idVendor=0x1949 idProduct=$BOARD_ID_PRODUCT stall=0
+        else
+            modprobe g_mass_storage file="" removable=1 idVendor=0x1949 idProduct=$BOARD_ID_PRODUCT
+        fi
+    else
+        modprobe g_file_storage
+    fi
+}
+wifi_driver() {
+    if [ -n "$wifim_START_CMD_wifi" ]; then
+        eval "$wifim_START_CMD_wifi"
+    else
+        modprobe ath6kl_sdio
+    fi
+}
+
 # The USB port becomes a network link instead of a drive, and the Wi-Fi chip
 # is ours. The drivers load while the splash waits, which saves a second or two.
 (
-    lsmod | grep -q '^g_file_storage' && rmmod g_file_storage
+    [ -n "$USB_DRIVE" ] && rmmod "$USB_DRIVE"
     modprobe g_ether
-    modprobe ath6kl_sdio
+    wifi_driver
 ) &
 drivers=$!
 
@@ -78,7 +108,7 @@ wait $drivers
 if [ $pressed -eq 1 ]; then
     echo "power pressed, booting stock this time"
     rmmod g_ether
-    modprobe g_file_storage
+    usb_drive
     rearm
     # Nothing but the splash has run, so the stock boot can carry on in place.
     release && exit 0
@@ -96,16 +126,29 @@ umount -l /mnt/us
 killall fsp 2>/dev/null
 iptables -I INPUT -p tcp --dport 22 -j ACCEPT
 iptables -I INPUT -p tcp --dport 2222 -j ACCEPT
+# SSH over Wi-Fi, which the SSH app turns on and off (nothing listens here otherwise).
+iptables -I INPUT -p tcp --dport 2022 -j ACCEPT
+
+# The touch panel's driver is loaded by an upstart job that runs alongside
+# this one. It is up long before this on the PW3, but give it a few seconds.
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    grep -q '^B: ABS=' /proc/bus/input/devices && break
+    sleep 1
+done
+grep -q '^B: ABS=' /proc/bus/input/devices || echo "no touch panel yet"
 
 chroot $R /usr/bin/env -i TERM=linux /sbin/own-init
 rc=$?
 echo "own-init exited $rc"
 
 # 10 to 12 are choices made on the home screen, so own Linux stays the default.
-# Anything else (13 is the crash guard) leaves the next boot stock.
+# Anything else (13 is the crash guard) leaves the next boot stock. own-init
+# may already have re-armed the flag, since a home screen that crashes every
+# few seconds is still running at its 20 second check, so disarm it again.
 case $rc in
 10) rearm; touch "$D/STOCK_ONCE" ;;
 11 | 12) rearm ;;
+*) [ -f "$D/BOOT_OWN" ] && mv -f "$D/BOOT_OWN" "$D/BOOT_OWN.trying" && echo "next boot is stock" ;;
 esac
 sync
 release

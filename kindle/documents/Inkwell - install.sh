@@ -1,6 +1,6 @@
 #!/bin/sh
 # Name: Inkwell: install
-# Author: Pragyaan Gaur
+# Author: Pietro Boccaletto
 # DontUseFBInk
 # Adds Inkwell's boot hook to the Kindle and reboots into Inkwell. The hook is
 # one upstart job, /etc/upstart/ownlinux.conf, which does nothing unless

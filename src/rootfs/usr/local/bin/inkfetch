@@ -39,7 +39,9 @@ def info():
     used = mem["MemTotal"] - mem["MemFree"] - mem.get("Buffers", 0) - mem.get("Cached", 0)
     st = os.statvfs("/mnt/us")
     free_gb = st.f_bavail * st.f_frsize / 2**30
-    batt = int(read("/sys/class/power_supply/max77696-battery/capacity", "0"))
+    pw4 = "imx6sll" in read("/proc/device-tree/compatible", "")
+    bat = "/sys/class/power_supply/" + ("bd71827_bat" if pw4 else "max77696-battery")
+    batt = int(read(bat + "/capacity", "0"))
     gov = read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
     models = os.listdir("/mnt/us/linux/models") if os.path.isdir("/mnt/us/linux/models") else []
     ai = "Qwen2.5 Coder 0.5B" if any("qwen" in m for m in models) else "SmolLM2 135M"
@@ -47,10 +49,10 @@ def info():
     return [
         (B + "root" + N + "@" + B + "inkwell" + N, None),
         ("─" * 24, None),
-        ("Host", "Kindle Paperwhite 3"),
+        ("Host", "Kindle Paperwhite 4" if pw4 else "Kindle Paperwhite 3"),
         ("OS", "Inkwell, Alpine " + read("/etc/alpine-release")),
         ("Kernel", os.uname().release),
-        ("CPU", "i.MX6SL, 1 GHz A9 (" + gov + ")"),
+        ("CPU", ("i.MX6SLL" if pw4 else "i.MX6SL") + ", 1 GHz A9 (" + gov + ")"),
         ("Display", "1072x1448 e-ink, 300 dpi"),
         ("Uptime", "%dh %02dm" % (up // 3600, up % 3600 // 60)),
         ("Apps", "%d, all in C" % apps),

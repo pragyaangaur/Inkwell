@@ -3,6 +3,8 @@
  * EPUB, MOBI, FB2 and text reflow to the screen with eight font sizes. PDF
  * pages are shown whole with their margins trimmed, or in Columns mode,
  * which cuts a two-column paper into strips the width of the screen.
+ * Comics (CBZ, CBT) have a Panels mode instead: each page is shown whole,
+ * then panel by panel, each zoomed to fill the screen.
  * Tap the right of the page to go on, the left to go back and the top for
  * the menu (page slider, contents, bookmarks, font size or view). The power
  * button puts the Kindle to sleep and wakes on the same page.
@@ -65,10 +67,15 @@ static void helper_start(void) {
 static void helper_stop(void) {
     if (rin >= 0) close(rin);
     if (rout >= 0) close(rout);
-    if (rpid > 0) { kill(rpid, SIGTERM); waitpid(rpid, 0, 0); }
+    /* SIGKILL, since this also ends a helper that has hung */
+    if (rpid > 0) { kill(rpid, SIGKILL); waitpid(rpid, 0, 0); }
     rin = rout = -1;
     rpid = 0;
 }
+
+/* How long one answer may take. Laying out a long EPUB on this processor
+ * takes a while, so it is generous: it only has to catch a hung helper. */
+#define HELPER_TIMEOUT_MS 180000
 
 static int helper_line(char *out, int n) {
     for (;;) {
@@ -81,13 +88,30 @@ static int helper_line(char *out, int n) {
             return 1;
         }
         if (rlen >= (int)sizeof rbuf - 1) rlen = 0;
+        struct pollfd p = {rout, POLLIN, 0};
+        if (rout < 0 || poll(&p, 1, HELPER_TIMEOUT_MS) <= 0) return 0;
         int r = read(rout, rbuf + rlen, sizeof rbuf - 1 - rlen);
         if (r <= 0) return 0;
         rlen += r;
     }
 }
 
-/* Sends one command and reads the answer. Returns 1 when it starts with ok. */
+/* One command and its answer: 1 for ok, 0 for an error answer, -1 when the
+ * helper is gone or stopped answering. */
+static int ask_once(char *reply, int n, const char *cmd) {
+    reply[0] = 0;
+    if (rin < 0 || write(rin, cmd, strlen(cmd)) < 0) return -1;
+    if (!helper_line(reply, n)) return -1;
+    return !strncmp(reply, "ok", 2);
+}
+
+/* The open document and its layout, replayed into a new helper. */
+static char last_open[1200], last_layout[200];
+
+/* Sends one command and reads the answer. Returns 1 when it starts with ok.
+ * MuPDF can crash or hang on a damaged file. The helper is then started
+ * again, with the open book reopened, and the command tried once more, so
+ * one bad page or book doesn't leave every other one unreadable. */
 static int ask(char *reply, int n, const char *fmt, ...) {
     char cmd[1200];
     va_list ap;
@@ -95,9 +119,24 @@ static int ask(char *reply, int n, const char *fmt, ...) {
     vsnprintf(cmd, sizeof cmd - 1, fmt, ap);
     va_end(ap);
     strcat(cmd, "\n");
-    if (rin < 0 || write(rin, cmd, strlen(cmd)) < 0) return 0;
-    if (!helper_line(reply, n)) return 0;
-    return !strncmp(reply, "ok", 2);
+    int is_open = !strncmp(cmd, "open\t", 5), is_layout = !strncmp(cmd, "layout\t", 7);
+    int r = ask_once(reply, n, cmd);
+    if (r < 0) {
+        char tmp[256];
+        fprintf(stderr, "books: render helper failed, restarting it\n");
+        helper_stop();
+        helper_start();
+        rlen = 0;
+        /* A book that broke the helper while opening would only do it
+         * again, so that is not retried. The fresh helper serves the next. */
+        if (is_open) r = -1;
+        else if (last_open[0] && ask_once(tmp, sizeof tmp, last_open) != 1) r = -1;
+        else if (!is_layout && last_layout[0] && ask_once(tmp, sizeof tmp, last_layout) != 1) r = -1;
+        else r = ask_once(reply, n, cmd);
+    }
+    if (r == 1 && is_open) { snprintf(last_open, sizeof last_open, "%s", cmd); last_layout[0] = 0; }
+    if (r == 1 && is_layout) snprintf(last_layout, sizeof last_layout, "%s", cmd);
+    return r == 1;
 }
 
 /* The i-th tab-separated field of a line. */
@@ -140,6 +179,10 @@ static int read_pgm(const char *path, image *im) {
     return got == (size_t)w * h ? 0 : -1;
 }
 
+/* Comics are pictures: their greys are dithered between the panel's 16
+ * levels, so shading comes out smooth instead of in bands. */
+static int blit_dither;
+
 /* Copies part of an image into the page at (dx, dy), clipped to the view. */
 static void blit(const image *im, int sx, int sy, int w, int h, int dx, int dy) {
     for (int j = 0; j < h; j++) {
@@ -148,7 +191,51 @@ static void blit(const image *im, int sx, int sy, int w, int h, int dx, int dy) 
         for (int i = 0; i < w; i++) {
             int x = dx + i, ix = sx + i;
             if (x < 0 || x >= W || ix < 0 || ix >= im->w) continue;
-            fb[y * PITCH + x] = im->px[iy * im->w + ix];
+            int v = im->px[iy * im->w + ix];
+            fb[y * PITCH + x] = blit_dither ? shade(x, y, v) : v;
+        }
+    }
+}
+
+/* Draws region (sx, sy, w, h) of an image scaled to fit the view, centred:
+ * averaged when it shrinks, interpolated when it grows. For comic panels. */
+static void blit_fit(const image *im, int sx, int sy, int w, int h) {
+    if (w <= 0 || h <= 0) return;
+    float f = fminf((float)W / w, (float)VIEW_H / h), inv = 1.0f / f;
+    int dw = (int)(w * f), dh = (int)(h * f), dx = (W - dw) / 2, dy = (VIEW_H - dh) / 2;
+    int k = inv > 1.5f ? (int)(inv + 0.5f) : 1; /* the box averaged per pixel when shrinking */
+    for (int j = 0; j < dh; j++) {
+        int y = dy + j;
+        if (y < 0 || y >= VIEW_H) continue;
+        float fy = sy + (j + 0.5f) * inv - 0.5f;
+        unsigned char *row = fb + y * PITCH;
+        for (int i = 0; i < dw; i++) {
+            int x = dx + i, v;
+            if (x < 0 || x >= W) continue;
+            float fx = sx + (i + 0.5f) * inv - 0.5f;
+            if (k > 1) {
+                int x0 = (int)(fx - k / 2.0f + 0.5f), y0 = (int)(fy - k / 2.0f + 0.5f), sum = 0, n = 0;
+                for (int b = y0; b < y0 + k; b++) {
+                    if (b < 0 || b >= im->h) continue;
+                    const unsigned char *src = im->px + b * im->w;
+                    for (int a = x0; a < x0 + k; a++) if (a >= 0 && a < im->w) { sum += src[a]; n++; }
+                }
+                v = n ? sum / n : 255;
+            } else {
+                int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
+                float ax = fx - x0, ay = fy - y0;
+                int x1 = x0 + 1, y1 = y0 + 1;
+                if (x0 < 0) x0 = 0;
+                if (y0 < 0) y0 = 0;
+                if (x1 >= im->w) x1 = im->w - 1;
+                if (y1 >= im->h) y1 = im->h - 1;
+                if (x0 >= im->w) x0 = im->w - 1;
+                if (y0 >= im->h) y0 = im->h - 1;
+                const unsigned char *r0 = im->px + y0 * im->w, *r1 = im->px + y1 * im->w;
+                float top = r0[x0] + (r0[x1] - r0[x0]) * ax, bot = r1[x0] + (r1[x1] - r1[x0]) * ax;
+                v = (int)(top + (bot - top) * ay + 0.5f);
+            }
+            row[x] = blit_dither ? shade(x, y, v) : (unsigned char)v;
         }
     }
 }
@@ -157,7 +244,7 @@ static void blit(const image *im, int sx, int sy, int w, int h, int dx, int dy) 
 
 typedef struct {
     char path[512], title[200], author[120];
-    int pages, reflow, page, em, mode, part, nparts;
+    int pages, reflow, page, em, mode, part, nparts, comic; /* mode: 0 whole page, 1 columns, 2 panels */
     int marks[100], nmarks;
     long opened;
 } book;
@@ -174,12 +261,12 @@ static void save_state(void) {
     char p[600];
     mkdir(STATE_DIR, 0755);
     state_path(bk.path, p, sizeof p);
-    FILE *f = fopen(p, "w");
+    FILE *f = save_begin(p);
     if (!f) return;
     fprintf(f, "path %s\ntitle %s\npage %d\npages %d\nem %d\nmode %d\nopened %ld\n", bk.path, bk.title, bk.page, bk.pages,
             bk.em, bk.mode, bk.opened);
     for (int i = 0; i < bk.nmarks; i++) fprintf(f, "mark %d\n", bk.marks[i]);
-    fclose(f);
+    save_end(f, p, 0);
 }
 
 /* Fills in what was saved for a document: page, size, view, bookmarks. */
@@ -264,6 +351,96 @@ static int content_box(int page, float pw, float ph, float *bx0, float *by0, flo
     return 0;
 }
 
+/* ---- comic panels ----------------------------------------------------------------- */
+
+/* Finds the panels on a comic page by cutting it along its gutters, the
+ * blank strips between panels: first into rows, then each row into
+ * columns, and again inside those, so the order is the reading order (top
+ * to bottom, left to right). Gutters can be white or black; the page's
+ * border says which. Works on a small render, in its pixels. */
+#define PN_MAX 23
+typedef struct { int x0, y0, x1, y1; } pbox;
+static const unsigned char *pn_px;
+static int pn_w, pn_dark, pn_gap;
+static pbox pn_out[64];
+static int pn_n;
+
+static int pn_ink(int x, int y) { int v = pn_px[y * pn_w + x]; return pn_dark ? v > 60 : v < 225; }
+static int pn_count(int vertical, int i, int a0, int a1) {
+    int n = 0;
+    for (int k = a0; k < a1; k++) n += vertical ? pn_ink(i, k) : pn_ink(k, i);
+    return n;
+}
+
+/* Shrinks a box to the ink inside it. 0 when nothing worth showing is left. */
+static int pn_trim(pbox *b) {
+    int tw = (b->x1 - b->x0) / 100, th = (b->y1 - b->y0) / 100;
+    while (b->y0 < b->y1 && pn_count(0, b->y0, b->x0, b->x1) <= tw) b->y0++;
+    while (b->y1 > b->y0 && pn_count(0, b->y1 - 1, b->x0, b->x1) <= tw) b->y1--;
+    while (b->x0 < b->x1 && pn_count(1, b->x0, b->y0, b->y1) <= th) b->x0++;
+    while (b->x1 > b->x0 && pn_count(1, b->x1 - 1, b->y0, b->y1) <= th) b->x1--;
+    return b->x1 - b->x0 > 6 && b->y1 - b->y0 > 6;
+}
+
+static void pn_cut(pbox b, int vertical, int depth) {
+    if (!pn_trim(&b)) return;
+    for (int pass = 0; pass < 2; pass++, vertical = !vertical) {
+        int a0 = vertical ? b.x0 : b.y0, a1 = vertical ? b.x1 : b.y1;
+        int c0 = vertical ? b.y0 : b.x0, c1 = vertical ? b.y1 : b.x1;
+        int tol = (c1 - c0) / 100; /* a balloon tail or a stray line may cross a gutter */
+        int cuts[33], nc = 0, start = a0, run = 0;
+        for (int i = a0; i < a1; i++) {
+            if (pn_count(vertical, i, c0, c1) <= tol) { run++; continue; }
+            if (run >= pn_gap && nc < 32) { cuts[nc++] = start; cuts[nc++] = i - run; start = i; }
+            run = 0;
+        }
+        if (nc == 0 || depth >= 5) continue;
+        if (nc < 32) { cuts[nc++] = start; cuts[nc++] = a1; }
+        for (int k = 0; k + 1 < nc; k += 2) {
+            pbox s = b;
+            if (vertical) { s.x0 = cuts[k]; s.x1 = cuts[k + 1]; } else { s.y0 = cuts[k]; s.y1 = cuts[k + 1]; }
+            pn_cut(s, !vertical, depth + 1);
+        }
+        return;
+    }
+    if (pn_n < (int)(sizeof pn_out / sizeof *pn_out)) pn_out[pn_n++] = b;
+}
+
+/* Fills out[] with the panels of a w x h grey image in reading order and
+ * returns how many. Fewer than 2 means the page is best seen whole. */
+static int find_panels(const image *t, pbox *out) {
+    long edge = 0, ne = 0;
+    for (int x = 0; x < t->w; x++) { edge += t->px[x] + t->px[(t->h - 1) * t->w + x]; ne += 2; }
+    for (int y = 0; y < t->h; y++) { edge += t->px[y * t->w] + t->px[y * t->w + t->w - 1]; ne += 2; }
+    pn_px = t->px; pn_w = t->w; pn_dark = edge / ne < 110;
+    pn_gap = (t->w > t->h ? t->w : t->h) / 150;
+    if (pn_gap < 2) pn_gap = 2;
+    pn_n = 0;
+    pbox page = {0, 0, t->w, t->h};
+    pn_cut(page, 0, 0);
+    if (pn_n < 2) return 0;
+    /* Specks (a sound effect between panels, a page number) join the panel
+     * before them instead of getting a screen of their own. */
+    long area = 0;
+    for (int i = 0; i < pn_n; i++) area += (long)(pn_out[i].x1 - pn_out[i].x0) * (pn_out[i].y1 - pn_out[i].y0);
+    int n = 0;
+    for (int i = 0; i < pn_n; i++) {
+        pbox b = pn_out[i];
+        long a = (long)(b.x1 - b.x0) * (b.y1 - b.y0);
+        int tiny = a * 33 < area;
+        if (tiny && (n > 0 || i + 1 < pn_n)) {
+            pbox *m = n > 0 ? &out[n - 1] : &pn_out[i + 1];
+            if (b.x0 < m->x0) m->x0 = b.x0;
+            if (b.y0 < m->y0) m->y0 = b.y0;
+            if (b.x1 > m->x1) m->x1 = b.x1;
+            if (b.y1 > m->y1) m->y1 = b.y1;
+            continue;
+        }
+        if (n < PN_MAX) out[n++] = b;
+    }
+    return n >= 2 ? n : 0;
+}
+
 /* Renders the current page if needed and works out its parts. */
 static int prepare(void) {
     char r[256];
@@ -277,7 +454,31 @@ static int prepare(void) {
         float pw = field_float(r, 1), ph = field_float(r, 2), x0, y0, x1, y1, split;
         content_box(bk.page, pw, ph, &x0, &y0, &x1, &y1, &split);
         float bw = x1 - x0, bh = y1 - y0;
-        if (bk.mode == 0) {
+        if (bk.comic && bk.mode == 2) {
+            /* Panels: the whole page first, then each panel. The page is
+             * rendered once, sharp enough for the most zoomed panel (within
+             * reason), and every part is scaled from that. */
+            float ts = 600.0f / fmaxf(pw, ph);
+            pbox pb[PN_MAX];
+            int np = 0;
+            image t = {0, 0, 0};
+            if (ask(r, sizeof r, "render\t%d\t%.4f\t%s", bk.page, ts, THUMB_PGM) && !read_pgm(THUMB_PGM, &t)) np = find_panels(&t, pb);
+            free(t.px);
+            float s0 = fminf(W / bw, VIEW_H / bh), smax = s0, pad = 3;
+            float fp[PN_MAX][4];
+            for (int i = 0; i < np; i++) {
+                fp[i][0] = clampf((pb[i].x0 - pad) / ts, 0, pw); fp[i][1] = clampf((pb[i].y0 - pad) / ts, 0, ph);
+                fp[i][2] = clampf((pb[i].x1 + pad) / ts, 0, pw); fp[i][3] = clampf((pb[i].y1 + pad) / ts, 0, ph);
+                smax = fmaxf(smax, fminf(W / (fp[i][2] - fp[i][0]), VIEW_H / (fp[i][3] - fp[i][1])));
+            }
+            float S = fminf(smax, fminf(3 * s0, sqrtf(20e6f / (pw * ph))));
+            if (S < s0) S = s0;
+            if (!ask(r, sizeof r, "render\t%d\t%.4f\t%s", bk.page, S, PAGE_PGM) || read_pgm(PAGE_PGM, &pg)) return -1;
+            parts[0] = (region){(int)(x0 * S), (int)(y0 * S), (int)(bw * S), (int)(bh * S)};
+            for (int i = 0; i < np; i++)
+                parts[i + 1] = (region){(int)(fp[i][0] * S), (int)(fp[i][1] * S), (int)((fp[i][2] - fp[i][0]) * S), (int)((fp[i][3] - fp[i][1]) * S)};
+            bk.nparts = 1 + np;
+        } else if (bk.mode == 0 || bk.mode == 2) {
             float s = fminf(W / bw, VIEW_H / bh) * 0.99f;
             if (!ask(r, sizeof r, "render\t%d\t%.4f\t%s", bk.page, s, PAGE_PGM) || read_pgm(PAGE_PGM, &pg)) return -1;
             bk.nparts = 1;
@@ -335,9 +536,15 @@ static void draw_page(void) {
         text_center(&f_ui_bold, 40, W / 2, VIEW_H / 2 - 30, "This page could not be drawn.", BLACK);
     } else {
         region p = parts[bk.part];
-        int dx = (W - p.w) / 2, dy = bk.reflow ? 0 : (VIEW_H - p.h) / 2;
-        if (!bk.reflow && bk.mode == 1) dy = 0;
-        blit(&pg, p.x, p.y, p.w, p.h, dx, dy);
+        blit_dither = bk.comic;
+        if (bk.comic && bk.mode == 2) {
+            blit_fit(&pg, p.x, p.y, p.w, p.h);
+        } else {
+            int dx = (W - p.w) / 2, dy = bk.reflow ? 0 : (VIEW_H - p.h) / 2;
+            if (!bk.reflow && bk.mode == 1) dy = 0;
+            blit(&pg, p.x, p.y, p.w, p.h, dx, dy);
+        }
+        blit_dither = 0;
     }
     if (marked(bk.page) >= 0) ribbon(W - 90, 0, 1);
     draw_footer();
@@ -470,6 +677,7 @@ static void draw_menu(void) {
     const char *lab[4];
     m_nb = 0;
     if (bk.reflow) { lab[m_nb++] = "A\xE2\x88\x92"; lab[m_nb++] = "A+"; }
+    else if (bk.comic) lab[m_nb++] = bk.mode == 2 ? "Whole page" : "Panels";
     else lab[m_nb++] = bk.mode ? "Whole page" : "Columns";
     lab[m_nb++] = "Contents";
     lab[m_nb++] = "Bookmarks";
@@ -489,6 +697,9 @@ static int open_book(const char *path) {
     snprintf(bk.path, sizeof bk.path, "%s", path);
     bk.em = 30;
     load_state(path, &bk);
+    const char *dot = strrchr(path, '.');
+    bk.comic = dot && (!strcasecmp(dot, ".cbz") || !strcasecmp(dot, ".cbt"));
+    if (bk.comic && !bk.opened) bk.mode = 2; /* a new comic opens in Panels */
     int saved_pages = bk.pages;
     if (!ask(r, sizeof r, "open\t%s\t%d\t%d\t%d", path, W, VIEW_H, bk.em)) return -1;
     bk.pages = field_int(r, 1);
@@ -611,7 +822,7 @@ static void read_book(void) {
             continue;
         }
         if (!bk.reflow && b == 0) {
-            bk.mode = !bk.mode;
+            bk.mode = bk.comic ? (bk.mode == 2 ? 0 : 2) : !bk.mode;
             bk.part = 0;
             save_state();
             draw_page();
@@ -633,8 +844,8 @@ static void read_book(void) {
 static int supported(const char *name) {
     const char *dot = strrchr(name, '.');
     if (!dot) return 0;
-    static const char *ext[] = {".pdf", ".epub", ".txt", ".mobi", ".fb2", ".cbz", ".xps"};
-    for (int i = 0; i < 7; i++) if (!strcasecmp(dot, ext[i])) return 1;
+    static const char *ext[] = {".pdf", ".epub", ".txt", ".mobi", ".fb2", ".cbz", ".cbt", ".xps"};
+    for (int i = 0; i < 8; i++) if (!strcasecmp(dot, ext[i])) return 1;
     return 0;
 }
 

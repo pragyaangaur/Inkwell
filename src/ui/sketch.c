@@ -20,7 +20,7 @@ static rect tool_r[NTOOLS], clear_btn, save_btn;
 /* 8-bit greyscale BMP of the canvas area (everything under the toolbar). */
 static int save_bmp(const char *path) {
     int w = W, h = H - BAR_H, stride = (w + 3) & ~3;
-    FILE *f = fopen(path, "wb");
+    FILE *f = save_begin(path);
     if (!f) return -1;
     unsigned hdr = 14 + 40 + 256 * 4, size = hdr + stride * h;
     unsigned char fh[14] = {'B', 'M'};
@@ -35,9 +35,7 @@ static int save_bmp(const char *path) {
         fwrite(fb + y * PITCH, 1, w, f);
         fwrite(pad, 1, stride - w, f);
     }
-    fclose(f);
-    sync();
-    return 0;
+    return save_end(f, path, 1);
 }
 
 static int load_bmp(const char *path) {
