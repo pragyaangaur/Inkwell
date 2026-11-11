@@ -55,6 +55,8 @@ The home screen also has a clock, the date, the battery and a frontlight slider.
 
 You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) that is already jailbroken. [kindlemodding.org](https://kindlemodding.org) explains how to jailbreak it, for example with WinterBreak. Inkwell was built and tested on firmware 5.16.2.1.1, and it needs about 1.5 GB of free space.
 
+For a **Kindle Paperwhite 4** (the 10th generation, from 2018), use [Pietro Boccaletto's port](https://github.com/akaped/Inkwell). He moved the screen, touch, power button, frontlight, battery, Wi-Fi and USB code over to the Paperwhite 4's drivers, and one image from his fork runs on both models. It also adds a Dashboard app, an SSH over Wi-Fi app and a panel-by-panel view for comics.
+
 1. Download the `Inkwell` zip file from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
 2. Connect the Kindle to your computer with a USB cable, so it shows up as a drive.
 3. Copy both folders to the top of the Kindle's drive. The `documents` folder already exists there, so let your computer merge the two.
@@ -185,7 +187,7 @@ tools/fetch.sh
 
 ## Credits
 
-Inkwell stands on a lot of other people's work: [Alpine Linux](https://alpinelinux.org), [llama.cpp](https://github.com/ggml-org/llama.cpp), [SmolLM2](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct) from Hugging Face (Q4_0 files by [bartowski](https://huggingface.co/bartowski)), [doomgeneric](https://github.com/ozkl/doomgeneric), id Software's Doom and its shareware episode, [stb_truetype](https://github.com/nothings/stb), the Inter, Cormorant Garamond, Caveat and JetBrains Mono typefaces, the chess symbols from DejaVu Sans, and the Kindle jailbreak community at [kindlemodding.org](https://kindlemodding.org). The jailbreak itself comes from that community, and Inkwell only starts where it ends.
+Inkwell stands on a lot of other people's work: [Alpine Linux](https://alpinelinux.org), [llama.cpp](https://github.com/ggml-org/llama.cpp), [SmolLM2](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct) from Hugging Face (Q4_0 files by [bartowski](https://huggingface.co/bartowski)), [doomgeneric](https://github.com/ozkl/doomgeneric), id Software's Doom and its shareware episode, [stb_truetype](https://github.com/nothings/stb), the Inter, Cormorant Garamond, Caveat and JetBrains Mono typefaces, the chess symbols from DejaVu Sans, and the Kindle jailbreak community at [kindlemodding.org](https://kindlemodding.org). The jailbreak itself comes from that community, and Inkwell only starts where it ends. The [Paperwhite 4 port](https://github.com/akaped/Inkwell) is the work of [Pietro Boccaletto](https://github.com/akaped).
 
 ## Licence
 
