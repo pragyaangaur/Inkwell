@@ -1,0 +1,45 @@
+#!/bin/sh
+# ssh-wifi: SSH over Wi-Fi. A second Dropbear on port 2022 that, unlike the
+# keys-only one on the USB link, also accepts root's password. The SSH app and
+# own-init drive it. Its state lives on the userstore, so it survives a new
+# alpine.img:
+#   linux/ssh-wifi         present while it should run
+#   linux/ssh-wifi.awake   present to keep the Kindle awake while it sleeps
+#   linux/ssh-password     root's password as a SHA-512 crypt hash, never the password
+# Usage: ssh-wifi start | stop | password | status | boot
+U=/mnt/us/linux
+PORT=2022
+PID=/run/dropbear-wifi.pid
+
+running() { [ -f $PID ] && kill -0 "$(cat $PID)" 2>/dev/null; }
+
+# Copies the saved hash into /etc/shadow. With none saved, root's password
+# stays locked and only keys work.
+password() {
+    h=$(head -n 1 $U/ssh-password 2>/dev/null | tr -d '\r\n')
+    case "$h" in '$6$'*) ;; *) h='*' ;; esac
+    echo "root:$h" | chpasswd -e >/dev/null
+}
+
+start() {
+    running && return 0
+    # No -s, so passwords are accepted. Dropbear makes its host key on first use.
+    dropbear -R -p $PORT -P $PID
+}
+
+# Stops the server and every session it started, which run under the same
+# command line.
+stop() {
+    pkill -f "dropbear -R -p $PORT" 2>/dev/null
+    rm -f $PID
+}
+
+case "$1" in
+start) password; start ;;
+stop) stop ;;
+password) password ;;
+status) if running; then echo on; else echo off; fi ;;
+boot) password; [ -f $U/ssh-wifi ] && start ;;
+*) echo "usage: ssh-wifi start|stop|password|status|boot" >&2; exit 2 ;;
+esac
+exit 0

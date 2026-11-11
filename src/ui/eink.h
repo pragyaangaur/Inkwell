@@ -21,10 +21,12 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STBTT_STATIC
 #include "stb_truetype.h"
+#include "board.h"
 
 /* ---- framebuffer and refresh -------------------------------------------- */
 
 struct mxcfb_rect { unsigned top, left, width, height; };
+/* The PW3's Lab126 layout, _IOW('F', 0x2E, 72 bytes). Its kernel rejects 76. */
 struct mxcfb_update_data {
     struct mxcfb_rect region;
     unsigned waveform, mode, marker, hist_bw, hist_gray;
@@ -32,16 +34,43 @@ struct mxcfb_update_data {
     unsigned flags;
     unsigned alt[7];
 };
-/* _IOW('F', 0x2E, 72 bytes). The PW3 kernel rejects the 76-byte layout. */
+/* The PW4 kernel takes only 80 bytes, in NXP's order: temp and flags come
+ * straight after the marker. In the PW3 order, hist_gray = 2 lands on flags
+ * as EPDC_FLAG_FORCE_MONOCHROME and every grey turns black or white. */
+struct mxcfb_update_data_pw4 {
+    struct mxcfb_rect region;
+    unsigned waveform, mode, marker;
+    int temp;
+    unsigned flags;
+    int dither_mode, quant_bit;
+    unsigned alt[7];
+    unsigned rest[2];
+};
 #define MXCFB_SEND_UPDATE 0x4048462Eu
+#define MXCFB_SEND_UPDATE_PW4 0x4050462Eu
 #define MXCFB_WAIT_FOR_UPDATE_COMPLETE 0xC008462Fu
-/* Measured on this panel: A2 190 ms (black and white only), DU 380 ms,
- * GC16 and GL16 660 ms. The size of the region makes no difference. */
+/* Measured on the PW3: A2 190 ms (black and white only), DU 380 ms,
+ * GC16 and GL16 660 ms. The size of the region makes no difference.
+ * These are the PW3's numbers. The PW4 numbers its waveforms differently
+ * (A2 6, GL16 3, REAGL 4), and refresh() translates. Measured there: A2
+ * 188 ms, DU 370 ms, GL16 and REAGL 650 ms, GC16 750 ms. */
 #define WF_DU 1
 #define WF_GC16 2
 #define WF_A2 4
 #define WF_GL16 5
 #define TEMP_AMBIENT 0x1000
+
+#define WF_PW4_REAGL 4
+
+/* The PW4's panel ghosts under partial GC16 and GL16. Amazon turns pages
+ * there with REAGL, which cleans up after the previous image without a
+ * flash, so partial grey updates use it. Full updates stay GC16. */
+static unsigned wf_board(int wf, int full) {
+    if (!board_pw4()) return wf;
+    if (wf == WF_A2) return 6;
+    if (!full && (wf == WF_GC16 || wf == WF_GL16)) return WF_PW4_REAGL;
+    return wf == WF_GL16 ? 3 : wf;
+}
 
 #define BLACK 0x00
 #define WHITE 0xFF
@@ -50,51 +79,175 @@ static int fbfd = -1, W, H, PITCH;
 static unsigned char *fb;
 static unsigned marker;
 
+static void wait_last_update(void);
 static int fb_open(void) {
     struct fb_var_screeninfo v;
     struct fb_fix_screeninfo f;
     fbfd = open("/dev/fb0", O_RDWR);
     if (fbfd < 0 || ioctl(fbfd, FBIOGET_VSCREENINFO, &v) || ioctl(fbfd, FBIOGET_FSCREENINFO, &f)) return -1;
+    /* The PW4 panel is mounted sideways, and upright is rotate 3. Amazon's X
+     * server also sets grayscale 2, which inverts the panel (0xFF shows
+     * black), and draws inverted to match. We want 0xFF white as on the
+     * PW3, which is grayscale 1. The first app after boot sets both and the
+     * later apps find them set. */
+    if (board_pw4() && (v.rotate != 3 || v.grayscale != 1 || v.bits_per_pixel != 8)) {
+        v.rotate = 3;
+        v.grayscale = 1;
+        v.bits_per_pixel = 8;
+        if (ioctl(fbfd, FBIOPUT_VSCREENINFO, &v)) perror("FBIOPUT_VSCREENINFO");
+        if (ioctl(fbfd, FBIOGET_VSCREENINFO, &v) || ioctl(fbfd, FBIOGET_FSCREENINFO, &f)) return -1;
+    }
     if (v.bits_per_pixel != 8) { fprintf(stderr, "expected 8 bpp, got %u\n", v.bits_per_pixel); return -1; }
     W = v.xres; H = v.yres; PITCH = f.line_length;
     unsigned char *m = mmap(0, f.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
     if (m == MAP_FAILED) return -1;
     fb = m + v.yoffset * PITCH;
+    /* leave the panel idle for whichever app draws next */
+    static int hooked;
+    if (!hooked) { hooked = 1; atexit(wait_last_update); }
     return 0;
 }
 
+/* The app's name, for the log (own.log collects every app's stderr). */
+static const char *app_name(void) {
+    static char name[32];
+    if (!name[0]) {
+        FILE *f = fopen("/proc/self/comm", "r");
+        if (!f || !fgets(name, sizeof name, f)) snprintf(name, sizeof name, "pid %d", (int)getpid());
+        if (f) fclose(f);
+        name[strcspn(name, "\n")] = 0;
+    }
+    return name;
+}
+
+/* Update markers name an update to the driver, which serves every app. Each
+ * app used to count from 1, so home, the app it opened and the next one all
+ * reused the same few numbers. Starting from the pid keeps them apart (FBInk
+ * does the same). */
+static unsigned next_marker(void) {
+    if (!marker) marker = ((unsigned)getpid() & 0xFFFFFu) << 10;
+    if (++marker == 0) marker = 1;
+    return marker;
+}
+
+/* Sends one update and returns its marker, or 0 if the driver refused it.
+ * The driver can turn an update away for a moment (powering the panel back
+ * up after idling, or its queue full), so a refusal is retried for up to
+ * about a second and a half before giving up. A wrong struct (EINVAL) isn't
+ * retried, since it never works. */
+static unsigned send_update(int x, int y, int w, int h, int wf, int full) {
+    for (int tries = 0;; tries++) {
+        unsigned mk = next_marker();
+        int r;
+        if (board_pw4()) {
+            struct mxcfb_update_data_pw4 u;
+            memset(&u, 0, sizeof u);
+            u.region = (struct mxcfb_rect){y, x, w, h};
+            u.waveform = wf_board(wf, full);
+            /* REAGL only works as a full update: sent as a partial one, the driver
+             * leaves some pixels as they were, and the last page shows through.
+             * A full REAGL update still doesn't flash. */
+            u.mode = full || u.waveform == WF_PW4_REAGL;
+            u.marker = mk;
+            u.temp = TEMP_AMBIENT;
+            r = ioctl(fbfd, MXCFB_SEND_UPDATE_PW4, &u);
+        } else {
+            struct mxcfb_update_data u;
+            memset(&u, 0, sizeof u);
+            u.region = (struct mxcfb_rect){y, x, w, h};
+            u.waveform = wf;
+            u.mode = full;
+            u.marker = mk;
+            u.hist_bw = WF_DU;
+            u.hist_gray = WF_GC16;
+            u.temp = TEMP_AMBIENT;
+            r = ioctl(fbfd, MXCFB_SEND_UPDATE, &u);
+        }
+        if (r >= 0) {
+            if (tries) fprintf(stderr, "%s: screen update went through after %d retries\n", app_name(), tries);
+            return mk;
+        }
+        int e = errno;
+        if (e == EINVAL || e == ENOTTY || e == EFAULT || e == EBADF || tries >= 10) {
+            fprintf(stderr, "%s: screen update %dx%d+%d+%d wf %d refused: %s\n", app_name(), w, h, x, y, wf, strerror(e));
+            return 0;
+        }
+        usleep(30000 * (tries + 1));
+    }
+}
+
+static long mono_ms(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t.tv_sec * 1000L + t.tv_nsec / 1000000;
+}
+
+/* The last update sent, and when: see wait_last_update. */
+static unsigned last_mk;
+static long last_mk_ms;
+
+/* Waits until the last update this app sent has reached the panel.
+ * The driver copies an update's pixels from the framebuffer when it gets to
+ * it, not when it is sent. An update still waiting when the page changes
+ * underneath (a pressed button, then a new app drawing its first page)
+ * picks up the new pixels, and the big update that follows collides with
+ * it and is dropped, though the driver reports it done. A filmed PW4 showed
+ * exactly that: home's pressed Books icon turned into Books' blank page,
+ * and Books' library never appeared. So: before a big update right after
+ * another one, before running another app, and when an app exits. */
+static void wait_last_update(void) {
+    if (!last_mk || fbfd < 0) return;
+    unsigned m[2] = {last_mk, 0};
+    ioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m);
+    last_mk = 0;
+}
+
 /* full=1 flashes the panel and clears ghosting, full=0 changes only what
- * changed. The driver copies the region when the update is sent, so drawing
- * can carry on straight away and wait is almost never needed. */
+ * changed. Drawing can carry on straight away, and wait is almost never
+ * needed (but see wait_last_update).
+ * An app's first full-screen page is the one that replaces the previous
+ * app's screen, and losing it left that screen showing while the app took
+ * taps for its own. So that one page is waited for, and if the driver never
+ * finishes it, the page is sent again as a full flash. */
+static int first_page_pending = 1;
 static void refresh(int x, int y, int w, int h, int wf, int full, int wait) {
-    struct mxcfb_update_data u;
-    memset(&u, 0, sizeof u);
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > W) w = W - x;
     if (y + h > H) h = H - y;
     if (w <= 0 || h <= 0) return;
-    u.region = (struct mxcfb_rect){y, x, w, h};
-    u.waveform = wf;
-    u.mode = full;
-    u.marker = ++marker;
-    u.hist_bw = WF_DU;
-    u.hist_gray = WF_GC16;
-    u.temp = TEMP_AMBIENT;
-    if (ioctl(fbfd, MXCFB_SEND_UPDATE, &u) < 0) { perror("SEND_UPDATE"); return; }
-    if (wait) {
-        unsigned m[2] = {marker, 0};
-        ioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m);
+    int big = w * h >= W * H / 2, verify = first_page_pending && big;
+    if (verify) first_page_pending = 0;
+    /* a big update straight after another (a press, a toast) waits for it,
+     * so the two can't collide; 1 s covers the slowest waveform */
+    if (big && last_mk && mono_ms() - last_mk_ms < 1000) wait_last_update();
+    unsigned mk = send_update(x, y, w, h, wf, full);
+    if (mk) { last_mk = mk; last_mk_ms = mono_ms(); }
+    if (!mk) {
+        /* refused even after retrying: one last try as a plain full update */
+        if (verify) send_update(0, 0, W, H, WF_GC16, 1);
+        return;
+    }
+    if (wait || verify) {
+        unsigned m[2] = {mk, 0};
+        last_mk = 0; /* waited for below, so nothing is left in flight */
+        if (ioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m) < 0 && errno == ETIMEDOUT) {
+            fprintf(stderr, "%s: screen update %u never finished%s\n", app_name(), mk, verify ? ", redrawing with a flash" : "");
+            if (verify) send_update(0, 0, W, H, WF_GC16, 1);
+        }
     }
 }
+/* For an app that ran another one and is about to draw over its screen. */
+static void screen_taken_back(void) { first_page_pending = 1; }
 static void refresh_all(void) { refresh(0, 0, W, H, WF_GC16, 1, 1); }
 
 /* A screen change. Partial GC16 only redraws pixels that changed, which is
  * quicker and calmer than a flash. Every few pages a full flash clears the
  * ghosting that partial updates leave behind. */
+/* The PW4 flashes every 6 pages, the PW3 every 8. */
 static int pages_since_flash;
 static void flip(void) {
-    if (++pages_since_flash >= 8) { pages_since_flash = 0; refresh(0, 0, W, H, WF_GC16, 1, 0); }
+    if (++pages_since_flash >= (board_pw4() ? 6 : 8)) { pages_since_flash = 0; refresh(0, 0, W, H, WF_GC16, 1, 0); }
     else refresh(0, 0, W, H, WF_GC16, 0, 0);
 }
 static void flip_flash(void) { pages_since_flash = 0; refresh(0, 0, W, H, WF_GC16, 1, 0); }
@@ -118,8 +271,8 @@ static void invert(int x, int y, int w, int h) {
 /* Saves and restores a rectangle of the page, for pressed states and popups. */
 typedef struct { int x, y, w, h; unsigned char *px; } snapshot;
 static snapshot snap(int x, int y, int w, int h) {
-    snapshot s = {x, y, w, h, malloc((size_t)w * h)};
-    for (int j = 0; j < h; j++) memcpy(s.px + j * w, fb + (y + j) * PITCH + x, w);
+    snapshot s = {x, y, w, h, w > 0 && h > 0 ? malloc((size_t)w * h) : 0};
+    for (int j = 0; s.px && j < h; j++) memcpy(s.px + j * w, fb + (y + j) * PITCH + x, w);
     return s;
 }
 static void unsnap(snapshot *s) {
@@ -145,7 +298,9 @@ static font f_serif_italic = {.file = "Cormorant-Italic.ttf"};
 static font f_hand = {.file = "Caveat-Medium.ttf"};
 static font f_mono = {.file = "JetBrainsMono-Regular.ttf"};
 static font f_chess = {.file = "DejaVuSans-Chess.ttf"}; /* only the twelve chess symbols */
+#ifndef FONT_DIR /* a host build can point this at fonts/ to draw screens off the device */
 #define FONT_DIR "/usr/share/fonts/inkwell/"
+#endif
 
 /* Fonts are memory-mapped on first use, so an app only pays for the faces it
  * draws with and the page cache shares them between apps. */
@@ -286,7 +441,10 @@ static int text_wrap(font *f, int px, const char *t, int max_w, void (*emit)(con
 
 /* ---- input ---------------------------------------------------------------- */
 
-static int touchfd = -1, keyfd = -1;
+/* The power button. The PW3 has one device for it (max77696-onkey). The PW4
+ * has two that both claim KEY_POWER, the PMIC's (bd71827-power) and the
+ * SoC's (snvs-powerkey), so both are read. */
+static int touchfd = -1, keyfd = -1, keyfd2 = -1;
 static int tx0, tx1, ty0, ty1;
 
 /* Where the finger last was, kept across apps. The kernel only reports a
@@ -319,8 +477,8 @@ static void input_open(void) {
             ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), &ay) == 0 && ax.maximum > 0) {
             touchfd = fd; tx0 = ax.minimum; tx1 = ax.maximum; ty0 = ay.minimum; ty1 = ay.maximum;
             touch_load();
-        } else if (keyfd < 0 && strstr(name, "onkey")) {
-            keyfd = fd;
+        } else if ((keyfd < 0 || keyfd2 < 0) && (strstr(name, "onkey") || strstr(name, "power"))) {
+            if (keyfd < 0) keyfd = fd; else keyfd2 = fd;
         } else {
             close(fd);
         }
@@ -370,12 +528,30 @@ static void input_drain(void) {
 
 static void input_read(void) { input_events(0); }
 
+/* 1 when either power key device reports a press. If both report the same
+ * press, the second within half a second is dropped. */
+static int power_pressed(void) {
+    static struct timespec last;
+    struct input_event ev[16];
+    int fds[2] = {keyfd, keyfd2}, pressed = 0;
+    long n;
+    for (int k = 0; k < 2; k++)
+        while (fds[k] >= 0 && (n = read(fds[k], ev, sizeof ev)) > 0)
+            for (int i = 0; i < n / (long)sizeof *ev; i++)
+                if (ev[i].type == EV_KEY && ev[i].code == KEY_POWER && ev[i].value == 1) pressed = 1;
+    if (!pressed) return 0;
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    long ms = (t.tv_sec - last.tv_sec) * 1000 + (t.tv_nsec - last.tv_nsec) / 1000000;
+    if (last.tv_sec && ms < 500) return 0;
+    last = t;
+    return 1;
+}
+
 static void input_events(int quiet) {
     struct input_event ev[64];
     long n;
-    while (keyfd >= 0 && (n = read(keyfd, ev, sizeof ev)) > 0)
-        for (int i = 0; i < n / (long)sizeof *ev; i++)
-            if (!quiet && ev[i].type == EV_KEY && ev[i].code == KEY_POWER && ev[i].value == 1) evq_push((event){EV_POWER, 0, 0, 0, 0});
+    if (power_pressed() && !quiet) evq_push((event){EV_POWER, 0, 0, 0, 0});
     while (touchfd >= 0 && (n = read(touchfd, ev, sizeof ev)) > 0)
         for (int i = 0; i < n / (long)sizeof *ev; i++) {
             struct input_event *e = &ev[i];
@@ -401,15 +577,19 @@ static void input_events(int quiet) {
         }
 }
 
-/* Waits up to timeout_ms (-1 for ever) for the next event. */
+/* Waits up to timeout_ms (-1 for ever) for the next event. The time left is
+ * measured on the clock, so touches that queue nothing (a resting finger, a
+ * drag with want_moves off) can't stretch the timeout. */
 static event input_wait(int timeout_ms) {
+    long deadline = timeout_ms >= 0 ? mono_ms() + timeout_ms : 0;
     /* Waiting for ever is done a minute at a time, so idle sleep can step in. */
     while (evq_head == evq_tail) {
-        int step = timeout_ms < 0 || timeout_ms > 60000 ? 60000 : timeout_ms;
-        struct pollfd p[2] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}};
-        if (poll(p, 2, step) > 0) { input_read(); continue; }
+        long left = timeout_ms >= 0 ? deadline - mono_ms() : 60000;
+        if (left <= 0) break;
+        int step = left > 60000 ? 60000 : (int)left;
+        struct pollfd p[3] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}, {keyfd2, POLLIN, 0}};
+        if (poll(p, 3, step) > 0) { input_read(); continue; }
         idle_check();
-        if (timeout_ms >= 0 && (timeout_ms -= step) <= 0) break;
     }
     if (evq_head == evq_tail) return (event){EV_NONE, 0, 0, 0, 0};
     event e = evq[evq_head];

@@ -136,9 +136,7 @@ static void apply_buttons(void) {
 static void read_touch(void) {
     struct input_event ev[64];
     long n;
-    while (keyfd >= 0 && (n = read(keyfd, ev, sizeof ev)) > 0)
-        for (int i = 0; i < n / (long)sizeof *ev; i++)
-            if (ev[i].type == EV_KEY && ev[i].code == KEY_POWER && ev[i].value == 1) exit(0);
+    if (power_pressed()) exit(0);
     while (touchfd >= 0 && (n = read(touchfd, ev, sizeof ev)) > 0)
         for (int i = 0; i < n / (long)sizeof *ev; i++) {
             struct input_event *e = &ev[i];

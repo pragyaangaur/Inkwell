@@ -9,6 +9,8 @@ cd /
 mountpoint -q /tmp || mount -t tmpfs -o mode=1777 tmpfs /tmp
 mountpoint -q /run || mount -t tmpfs -o mode=755 tmpfs /run
 mkdir -p /var/log /run/own
+# The log lives in the image, so cap it: past 1 MB the old one becomes own.log.1.
+[ "$(wc -c < /var/log/own.log 2>/dev/null || echo 0)" -gt 1048576 ] && mv -f /var/log/own.log /var/log/own.log.1
 exec >>/var/log/own.log 2>&1
 echo "=== $(date) own-init"
 hostname -F /etc/hostname
@@ -31,16 +33,31 @@ if [ ! -f /etc/.apk-registered ]; then
     apk add --no-network /root/pkgs/*.apk && touch /etc/.apk-registered
 fi
 ifconfig lo 127.0.0.1 up
-[ -s /mnt/us/linux/light ] && cat /mnt/us/linux/light > /sys/class/backlight/max77696-bl/brightness
+
+# The frontlight and battery, PW3 (MAX77696) or PW4 (BD71827, LM3695).
+for LIGHT in /sys/class/backlight/max77696-bl /sys/class/backlight/bl; do [ -d $LIGHT ] && break; done
+for BAT in /sys/class/power_supply/max77696-battery /sys/class/power_supply/bd71827_bat; do [ -d $BAT ] && break; done
+# The BD71827 has no status file, only a charging flag (board.h does the same).
+bat_status() {
+    if [ -f $BAT/status ]; then cat $BAT/status
+    elif [ "$(cat $BAT/charging 2>/dev/null)" = 1 ]; then echo Charging
+    elif [ "$(cat /sys/class/power_supply/bd71827_ac/online 2>/dev/null)" = 1 ] && [ "$(cat $BAT/capacity)" = 100 ]; then echo Full
+    else echo Discharging
+    fi
+}
+[ -s /mnt/us/linux/light ] && cat /mnt/us/linux/light > $LIGHT/brightness
 
 # Networking comes up in the background so the home screen appears first.
 (
     # USB: the Kindle is 192.168.15.244 and hands the computer an address.
+    # Its SSH server takes keys only, and listens on the USB link alone, so
+    # Wi-Fi can't reach it. ssh-wifi runs a separate one for Wi-Fi.
     if ifconfig usb0 192.168.15.244 netmask 255.255.255.0 up; then
         touch /run/udhcpd.leases
         udhcpd /etc/own/udhcpd.conf
+        dropbear -R -s -p 192.168.15.244:22 -p 192.168.15.244:2222 -P /run/dropbear.pid
     fi
-    dropbear -R -s -p 22 -p 2222 -P /run/dropbear.pid
+    ssh-wifi boot
 
     # Wi-Fi: wpa_supplicant always runs so the Wi-Fi app can scan and join.
     # It saves joined networks back to wifi.conf.
@@ -68,13 +85,27 @@ ifconfig lo 127.0.0.1 up
     done
 ) &
 
+# The Dashboard's calendar, weather and server, refreshed in the background
+# while the Kindle is awake, so its sleep screen is recent too. Only once
+# linux/dashboard.conf exists, and only with a route out.
+(
+    while :; do
+        m=15
+        if [ -f $U/dashboard.conf ]; then
+            m=$(sed -n 's/^[[:space:]]*refresh_minutes[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' $U/dashboard.conf | head -n 1)
+            [ "${m:-0}" -ge 1 ] 2>/dev/null || m=15
+            route -n | grep -q '^0\.0\.0\.0' && timeout 120 dashboard-fetch >/dev/null 2>&1
+        fi
+        sleep $((m * 60))
+    done
+) &
+
 # The battery, every ten minutes, for the graph in Settings. The log keeps
 # about a week.
 (
-    B=/sys/class/power_supply/max77696-battery
     LOG=/mnt/us/linux/battery.log
     while :; do
-        echo "$(date +%s) $(cat $B/capacity) $(cat $B/status)" >> $LOG
+        echo "$(date +%s) $(cat $BAT/capacity) $(bat_status)" >> $LOG
         if [ "$(wc -l < $LOG)" -gt 1500 ]; then tail -n 1000 $LOG > $LOG.new && mv $LOG.new $LOG; fi
         sleep 600
     done
@@ -111,5 +142,6 @@ for f in /run/dropbear.pid /run/wpa_supplicant.pid /run/udhcpc.wlan0.pid; do
     [ -f $f ] && kill "$(cat $f)" 2>/dev/null
 done
 killall udhcpd 2>/dev/null
+ssh-wifi stop
 sync
 exit $rc

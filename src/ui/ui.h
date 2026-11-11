@@ -11,6 +11,29 @@
 #define MARGIN 56
 #define HEADER_H 150
 
+/* ---- saving files ----------------------------------------------------------- */
+
+/* Writes path.new and renames it over path, so a crash or a flat battery in
+ * the middle of a save leaves the old file instead of an empty one, and a
+ * full drive is reported instead of truncating. durable also fsyncs, for
+ * what the owner typed (it costs a moment on the userstore).
+ *   FILE *f = save_begin(path); fprintf(f, ...); ok = save_end(f, path, 1) == 0; */
+static FILE *save_begin(const char *path) {
+    char tmp[4096];
+    if (snprintf(tmp, sizeof tmp, "%s.new", path) >= (int)sizeof tmp) return 0;
+    return fopen(tmp, "w");
+}
+static int save_end(FILE *f, const char *path, int durable) {
+    char tmp[4096];
+    if (!f) return -1;
+    snprintf(tmp, sizeof tmp, "%s.new", path); /* fits: save_begin checked */
+    int bad = ferror(f) || fflush(f) != 0;
+    if (!bad && durable) bad = fsync(fileno(f)) != 0;
+    bad = (fclose(f) != 0) || bad;
+    if (bad || rename(tmp, path)) { unlink(tmp); return -1; }
+    return 0;
+}
+
 typedef struct { int x, y, w, h; } rect;
 
 static int hit(rect r, int x, int y) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; }

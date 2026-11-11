@@ -14,6 +14,7 @@ int main(int argc, char **argv) {
     text_center(&f_serif_bold, 150, W / 2, H / 2 - 40, "Inkwell", BLACK);
     if (a < argc) text_center(&f_serif_italic, 56, W / 2, H / 2 + 150, argv[a++], 0x40);
     if (a < argc) text_center(&f_ui, 32, W / 2, H - 160, argv[a++], 0x70);
+    first_page_pending = 0; /* waiting on it would only slow the boot */
     refresh(0, 0, W, H, WF_GC16, 1, 0);
     if (!wait_s) return 0;
     input_open();

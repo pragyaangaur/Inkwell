@@ -1,8 +1,10 @@
 # Inkwell
 
+This is a fork of [Inkwell](https://github.com/pragyaangaur/Inkwell) by Pragyaan Gaur, modified by Pietro Boccaletto to also run on the **Kindle Paperwhite 4**. The original runs on the Paperwhite 3, and this fork keeps it working there. [The Paperwhite 4 port](#the-paperwhite-4-port) lists what changed.
+
 Featured on Hackaday: [It's Alpine Linux, On A Kindle Paperwhite 3](https://hackaday.com/2026/11/06/its-alpine-linux-on-a-kindle-paperwhite-3/) (6 November 2026).
 
-Inkwell is a small Linux system of its own for the jailbroken Kindle Paperwhite 3. Amazon's bootloader and kernel still start the device, and everything after that is replaced: the home screen, the apps, Wi-Fi, USB networking and SSH all come from an Alpine Linux userspace built for the e-ink panel.
+Inkwell is a small Linux system of its own for the jailbroken Kindle Paperwhite 3 and Paperwhite 4. Amazon's bootloader and kernel still start the device, and everything after that is replaced: the home screen, the apps, Wi-Fi, USB networking and SSH all come from an Alpine Linux userspace built for the e-ink panel.
 
 It has a chatbot called Quill that runs a language model on the Kindle itself with no internet, and in the terminal Quill writes and runs code. It reads EPUB and PDF books, keeps arXiv papers for reading offline, and plays Doom, chess and the first version of Minecraft. It also has a reading web browser, notes, a sketchpad and a falling-block game called TriKing. You install it by copying one folder to the Kindle and tapping one item in the library, and one more tap brings the normal Kindle back.
 
@@ -24,6 +26,8 @@ These clips are from a real Kindle Paperwhite 3. Some are sped up, and each capt
 
 - **Quill** is a chatbot that runs SmolLM2 through llama.cpp on the Kindle's own processor. It writes its answer word by word at about 1.7 words per second with the quick model, and a slower smart model can be added. Nothing leaves the device.
 - **Books** reads EPUB, PDF, MOBI, FB2 and text files from the `documents` folder through MuPDF. Books reflow to eight font sizes, and PDFs are shown with their margins trimmed, or in a Columns mode that cuts a two-column paper into strips the width of the screen. You tap the right of the page to go on and the left to go back. The top opens a page slider, the table of contents and bookmarks, and every book reopens on the page where you left it.
+- **Comics.** Books also opens CBZ and CBT comics. They open in a Panels view: each page is shown whole, then panel by panel, each zoomed to fill the screen, in reading order. Inkwell finds the panels itself from the gutters between them, white or black. **Whole page** in the menu turns it off for that comic, and greys are dithered so shading doesn't come out in bands.
+- **Dashboard** is a page to leave on: a clock, the weather now and for the next days, your calendars, and lines and buttons from a small server on your computer, such as its load or a button that locks its screen. While it is open the Kindle doesn't go to sleep by itself, so it keeps itself up to date. It can also be the sleep screen. [The Dashboard](#the-dashboard) explains how to set it up.
 - **arXiv** fetches a paper by its number, such as `1706.03762`, and shows its title, authors and abstract. **Save offline** downloads the PDF to the `arxiv` folder and opens it in Books, and saved papers stay listed for reading without Wi-Fi.
 - **Doom** is the original shareware episode. The game is drawn into the top of the screen, dithered to black and white so each frame can use the fastest refresh, and played with an on-screen d-pad, Fire and Use buttons.
 - **Minecraft** is rd-132211, the first version of Minecraft from 2009, through [rdgeneric](https://github.com/pragyaangaur/Can-It-Run-Minecraft). You can walk, dig and place blocks.
@@ -35,6 +39,7 @@ These clips are from a real Kindle Paperwhite 3. Some are sped up, and each capt
 - **Notes** saves plain text files to the `notes` folder on the Kindle's drive, so you can read them on a computer.
 - **Sketch** is a drawing pad that saves pictures to the `sketches` folder.
 - **Wi-Fi** scans for networks and joins them with the on-screen keyboard.
+- **SSH** lets another computer on the same Wi-Fi log in to the Kindle. It shows the address and port to connect to, sets a password, and can keep SSH working while the Kindle sleeps. [SSH over Wi-Fi](#ssh-over-wi-fi) has the details.
 - **Settings** restarts or powers off the Kindle, opens the normal Kindle UI once, draws the battery over the last day, and shows memory and storage.
 
 The home screen also has a clock, the date, the battery and a frontlight slider. To move an app, drag it onto another place. The Kindle sleeps after 15 minutes without a touch in any app, or when you press the power button on the home screen or in Books, and it shows a night sky while it sleeps. When it wakes, the app is just as you left it. With Wi-Fi on, the clock sets itself from the network.
@@ -53,11 +58,9 @@ The home screen also has a clock, the date, the battery and a frontlight slider.
 
 ## Install
 
-You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) that is already jailbroken. [kindlemodding.org](https://kindlemodding.org) explains how to jailbreak it, for example with WinterBreak. Inkwell was built and tested on firmware 5.16.2.1.1, and it needs about 1.5 GB of free space.
+You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) or a **Kindle Paperwhite 4** (the 10th generation, from 2018) that is already jailbroken. [kindlemodding.org](https://kindlemodding.org) explains how to jailbreak it, for example with WinterBreak. The original Inkwell was built and tested on a Paperwhite 3 with firmware 5.16.2.1.1, and the port on a Paperwhite 4 with firmware 5.18.1. It needs about 1.5 GB of free space. The same release works on both models and finds out at boot which one it is on.
 
-For a **Kindle Paperwhite 4** (the 10th generation, from 2018), use [Pietro Boccaletto's port](https://github.com/akaped/Inkwell). He moved the screen, touch, power button, frontlight, battery, Wi-Fi and USB code over to the Paperwhite 4's drivers, and one image from his fork runs on both models. It also adds a Dashboard app, an SSH over Wi-Fi app and a panel-by-panel view for comics.
-
-1. Download the `Inkwell` zip file from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
+1. Download the `Inkwell` zip file from the [latest release](https://github.com/pboccaletto/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
 2. Connect the Kindle to your computer with a USB cable, so it shows up as a drive.
 3. Copy both folders to the top of the Kindle's drive. The `documents` folder already exists there, so let your computer merge the two.
 4. Eject the Kindle and unplug it.
@@ -81,7 +84,19 @@ Tap an app to open it, and tap the round arrow in the top left corner to go back
 
 **SSH to your computer.** On a Mac, turn on Remote Login in System Settings, under General and then Sharing. In the Terminal app, `ssh yourname@192.168.15.201` then connects to the Mac over the USB cable. The address is the one Inkwell hands the computer, and Linux computers work the same way with their SSH server running.
 
-**Your files.** Notes are in `notes`, sketches are in `sketches`, arXiv papers are in `arxiv`, chess games are in `chess` and Doom saves are in `doom` on the Kindle's drive. While Inkwell runs, the USB port is a network link, so to reach the drive you open the normal Kindle UI once (below) and plug in the cable.
+**Your files.** Notes are in `notes`, sketches are in `sketches`, arXiv papers are in `arxiv`, chess games are in `chess` and Doom saves are in `doom` on the Kindle's drive. While Inkwell runs, the USB port is a network link, so to reach the drive you open the normal Kindle UI once (below) and plug in the cable. With SSH over Wi-Fi on, `scp -P 2022 book.epub root@<address>:/mnt/us/documents/` copies a file to the drive without leaving Inkwell.
+
+## The Dashboard
+
+The Dashboard reads its settings from `linux/dashboard.conf` on the Kindle's drive. The release has `linux/dashboard.conf.example` next to it: copy it to `dashboard.conf` and fill in what you want. Anything left out is just not shown.
+
+- **Calendars.** `ics = ` and the calendar's secret address in iCal format, one line per calendar. Google Calendar has it in the calendar's settings as "Secret address in iCal format". Repeating events, moved and cancelled ones, all-day events and time zones are handled. `days = 3` sets how many days are shown.
+- **Weather.** `latitude`, `longitude` and `place` (just the name shown). It comes from [Open-Meteo](https://open-meteo.com), which needs no account. `units = imperial` gives Fahrenheit and mph.
+- **Your computer.** Run `python3 tools/dashboard-server.py` from this repository on your computer. It prints a `server =` and a `token =` line to put in `dashboard.conf`. The Kindle then shows the lines its `info()` returns and a button for each entry in its `ACTIONS`, which run a command on the computer when tapped. It comes with no buttons, and commented examples show how to add some. It needs only Python 3, and every request must carry the token, which it keeps in `~/.config/inkwell/dashboard-token`. The token travels unencrypted, so keep it to a network you trust. The script's comments describe the two requests, if you'd rather write your own server.
+- **Turning it.** The round arrow at the top turns the page for a Kindle lying on its side on a stand: upright, then turned a quarter to the left, then to the right. Lying down, the clock, weather and forecast take the left half and the calendar and your computer the right. The Paperwhite 3 and 4 have no accelerometer, so it doesn't turn by itself, and the choice is remembered in `linux/dashboard.rotation`.
+- **Sleep screen.** `sleep_screen = yes` shows the Dashboard instead of the night sky while the Kindle sleeps, as it was last fetched, with the weekday in place of the clock.
+
+Everything is fetched again every `refresh_minutes` (15 by default) while the Kindle is awake, and tapping the line at the bottom fetches it now. The Kindle needs Wi-Fi for all of it. Leaving the Dashboard open keeps the Kindle from suspending, which uses noticeably more battery than sleeping, so keep it on the charger if it stays up for days.
 
 ## Going back to the normal Kindle
 
@@ -95,7 +110,7 @@ Inkwell is built so that a failure leads back to the normal Kindle. The boot scr
 
 Two logs help with problems. `linux/boot.log` on the Kindle's drive records each boot, and `/var/log/own.log` inside Inkwell records networking and the home screen.
 
-Only the Paperwhite 3 has been tested. Other Kindles with the same i.MX6 SoloLite chip may boot it, but their touch panel, Wi-Fi chip or frontlight may differ. If you try another model, the fallback above still applies.
+Only the Paperwhite 3 and Paperwhite 4 have been tested. Other Kindles on the same chips (the i.MX6 SoloLite, or the i.MX6 SoloLite Lite in the Paperwhite 4) may boot it, but their screen size, touch panel, Wi-Fi chip or frontlight may differ. If you try another model, the fallback above still applies.
 
 ## SSH (optional)
 
@@ -105,7 +120,19 @@ Inkwell runs an SSH server on the USB link. The Kindle is `192.168.15.244`, and 
 2. In the normal Kindle UI, copy that `.pub` file to the Kindle's drive as `linux/authorized_keys`.
 3. Boot Inkwell, plug in the cable and run `./ssh.sh` again to get a root shell.
 
-Password logins are off, and the release image carries no keys, so nobody can log in until you add yours. Inside, `kindle <command>` runs a command in the Kindle's own system, `tap x y` sends a touch to the screen and `tools/shot.sh name` (on your computer) saves a screenshot to `out/name.png`. `tools/push.sh` copies files into the running system without rebuilding the image.
+Password logins are off on the USB link, and the release image carries no keys, so nobody can log in until you add yours. This server only listens on the USB link. Inside, `kindle <command>` runs a command in the Kindle's own system, `tap x y` sends a touch to the screen and `tools/shot.sh name` (on your computer) saves a screenshot to `out/name.png`. `tools/push.sh` copies files into the running system without rebuilding the image.
+
+### SSH over Wi-Fi
+
+The **SSH** app runs a second SSH server, on port 2022, that other computers on your Wi-Fi network can reach. It is off until you turn it on.
+
+1. Join a network in the Wi-Fi app.
+2. Open SSH and tap **Set a password**. It needs at least 8 characters, and it shows as you type it.
+3. Tap **Turn on**. The app shows the Kindle's Wi-Fi address and the command to type, for example `ssh -p 2022 root@192.168.1.42`.
+
+This server accepts the password and also the keys in `linux/authorized_keys`. Only a hash of the password is saved, in `linux/ssh-password` on the drive, and **Remove password** deletes it and leaves keys as the only way in. Anyone on the same network can try passwords, so pick a long one, or use a key and remove the password. SSH stays on across reboots until you turn it off.
+
+A sleeping Kindle can't answer, so SSH normally pauses while the Kindle sleeps and comes back when it wakes. With **Keep on while asleep** turned on, the Kindle shows the sleep screen and turns off the frontlight, but it doesn't suspend, so SSH keeps working. That uses noticeably more battery. Press the power button to wake it as usual.
 
 ## How it works
 
@@ -131,6 +158,25 @@ Inkwell's own software is in C. `src/ui/eink.h` drives the framebuffer and the e
 
 Quill's model runs in `inkllm`, a small program around llama.cpp that Quill talks to through a pipe. The system prompt is evaluated once per model and cached to the drive, so a new chat starts at once. The context is 1024 tokens, and answers stop at 240 tokens.
 
+## The Paperwhite 4 port
+
+The Paperwhite 4 has the same 1072x1448 screen as the Paperwhite 3, but almost every driver underneath is different. One image runs on both: the programs read `/proc/device-tree/compatible` (the Paperwhite 3's kernel has no device tree, the Paperwhite 4's says `amzn,imx6sll-rex`) and pick the right behaviour.
+
+| | Paperwhite 3 | Paperwhite 4 |
+| --- | --- | --- |
+| Chip and kernel | i.MX6 SoloLite, Linux 3.0.35 | i.MX6 SoloLite Lite, Linux 4.1.15 |
+| E-ink refresh ioctl | Lab126's 72-byte update struct | an 80-byte struct in NXP's field order, with temperature and flags straight after the marker |
+| Waveform numbers | A2 4, GL16 5 | A2 6, GL16 3 (DU 1 and GC16 2 on both) |
+| Framebuffer | upright as booted | mounted sideways: Inkwell sets rotate 3 and grayscale 1, since Amazon's grayscale 2 inverts the panel |
+| Touch | Cypress cyttsp4 | Goodix gt9xx, in the same coordinates as the screen |
+| Power button | `max77696-onkey` | two devices, `bd71827-power` and `snvs-powerkey`, and Inkwell reads both |
+| Frontlight | `/sys/class/backlight/max77696-bl` | `/sys/class/backlight/bl` (LM3695, 0 to 2047) |
+| Battery | `max77696-battery`, with a status file | `bd71827_bat`, with a charging flag but no status file |
+| Wi-Fi | Atheros, `ath6kl_sdio` | Broadcom BCM4343W, `bcmdhd` with Amazon's firmware and NVRAM paths |
+| USB drive | `g_file_storage` | `g_mass_storage` with Amazon's product id |
+
+`src/ui/board.h` holds the frontlight, battery and model differences for the apps, and `src/ui/eink.h` and `src/kio.h` the screen and power button. `boot.sh` reads the Wi-Fi command and the USB product id from the firmware's own `/etc/sysconfig/platform_variables`, so it uses exactly what Amazon's boot uses. It also waits a few seconds for the touch panel, whose driver loads alongside Inkwell's boot on the Paperwhite 4.
+
 ## Things learned on the way
 
 - **The e-ink refresh ioctl.** `MXCFB_SEND_UPDATE` on this kernel takes a 72-byte struct (`0x4048462E`). The 76-byte form from newer kernel headers returns `EINVAL`, and the screen then never updates.
@@ -152,14 +198,14 @@ Quill's model runs in `inkllm`, a small program around llama.cpp that Quill talk
 
 ## Build it yourself
 
-The build runs on macOS (Apple Silicon or Intel). Linux should work with small changes, but it has not been tried.
+The build runs on macOS (Apple Silicon or Intel) and on Linux. On Linux, the simplest way is an Alpine container with `clang llvm lld cmake samurai python3 e2fsprogs e2fsprogs-extra perl-utils curl zip`, the same set the GitHub Actions workflow uses. On macOS:
 
 ```bash
 brew install llvm lld cmake ninja e2fsprogs
 ```
 
 ```bash
-git clone https://github.com/pragyaangaur/Inkwell.git && cd Inkwell
+git clone https://github.com/pboccaletto/Inkwell.git && cd Inkwell
 ```
 
 ```bash
@@ -180,14 +226,18 @@ tools/fetch.sh
 | `src/minecraft.c`, `src/triking.c`, `src/kio.h` | The two games, freestanding with raw syscalls |
 | `src/rd/` | rdgeneric, the Minecraft rd-132211 core |
 | `src/linux/` | The upstart job, `boot.sh` and the boot splash |
-| `src/rootfs/` | Files laid over Alpine: `own-init`, the app list, Quill's system prompt |
+| `src/rootfs/` | Files laid over Alpine: `own-init`, the app list, Quill's system prompt, `dashboard-fetch` |
 | `kindle/documents/` | The library scriptlets that install, start, stop and uninstall |
-| `tools/` | Cross compilers, fetch and release scripts, SSH helpers |
+| `tools/` | Cross compilers, fetch and release scripts, SSH helpers, the Dashboard's server |
 | `fonts/`, `third_party/` | The typefaces with their licences, and stb_truetype |
+
+GitHub Actions builds the release on every push to `main` (`.github/workflows/build.yml`), and the zip can be downloaded from the run's artifacts. Pushing a tag such as `v1.3.0` also publishes it as a GitHub release. The workflow fetches only the quick model (`QUICK_ONLY=1 tools/fetch.sh`), since `getmodel` downloads the others on the Kindle.
 
 ## Credits
 
-Inkwell stands on a lot of other people's work: [Alpine Linux](https://alpinelinux.org), [llama.cpp](https://github.com/ggml-org/llama.cpp), [SmolLM2](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct) from Hugging Face (Q4_0 files by [bartowski](https://huggingface.co/bartowski)), [doomgeneric](https://github.com/ozkl/doomgeneric), id Software's Doom and its shareware episode, [stb_truetype](https://github.com/nothings/stb), the Inter, Cormorant Garamond, Caveat and JetBrains Mono typefaces, the chess symbols from DejaVu Sans, and the Kindle jailbreak community at [kindlemodding.org](https://kindlemodding.org). The jailbreak itself comes from that community, and Inkwell only starts where it ends. The [Paperwhite 4 port](https://github.com/akaped/Inkwell) is the work of [Pietro Boccaletto](https://github.com/akaped).
+Inkwell was created by [Pragyaan Gaur](https://github.com/pragyaangaur/Inkwell). The Paperwhite 4 port is by Pietro Boccaletto.
+
+Inkwell stands on a lot of other people's work: [Alpine Linux](https://alpinelinux.org), [llama.cpp](https://github.com/ggml-org/llama.cpp), [SmolLM2](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct) from Hugging Face (Q4_0 files by [bartowski](https://huggingface.co/bartowski)), [doomgeneric](https://github.com/ozkl/doomgeneric), id Software's Doom and its shareware episode, [stb_truetype](https://github.com/nothings/stb), the Inter, Cormorant Garamond, Caveat and JetBrains Mono typefaces, the chess symbols from DejaVu Sans, and the Kindle jailbreak community at [kindlemodding.org](https://kindlemodding.org). The jailbreak itself comes from that community, and Inkwell only starts where it ends.
 
 ## Licence
 

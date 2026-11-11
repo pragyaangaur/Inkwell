@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""dashboard-fetch: gathers what the Dashboard app shows and saves it for it.
+
+  dashboard-fetch              fetch the calendars, the weather and your
+                               server, and write linux/dashboard.cache
+  dashboard-fetch action <id>  ask your server to run one of its actions,
+                               and print its answer
+
+Settings come from linux/dashboard.conf on the Kindle's drive (see
+dashboard.conf.example). The cache is a plain text file with one item per
+line and tab-separated fields, which the C app reads:
+
+  updated <epoch>              place <name>
+  now <temp> <icon> <description> <wind>
+  day <YYYY-MM-DD> <icon> <low> <high> <rain %>
+  event <start epoch> <end epoch> <all day 0/1> <title> <location>
+  srvtitle <text>              line <label> <value>
+  button <id> <label>          error <source> <message>
+
+Only the standard library is used, since that is what the Kindle has.
+"""
+import calendar
+import datetime as dt
+import fcntl
+import json
+import os
+import re
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+CONF = os.environ.get("DASHBOARD_CONF", "/mnt/us/linux/dashboard.conf")
+CACHE = os.environ.get("DASHBOARD_CACHE", "/mnt/us/linux/dashboard.cache")
+LOCK = os.environ.get("DASHBOARD_LOCK", "/run/own/dashboard.lock")
+UA = "Inkwell-dashboard/1.0"
+TIMEOUT = 20
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
+
+
+def local_zone():
+    """own-init writes both /etc/timezone and /etc/localtime from linux/timezone."""
+    try:
+        with open("/etc/timezone") as f:
+            return ZoneInfo(f.read().strip())
+    except Exception:
+        pass
+    try:
+        with open("/etc/localtime", "rb") as f:
+            return ZoneInfo.from_file(f)
+    except Exception:
+        return dt.timezone.utc
+
+
+LOCAL = local_zone()
+
+
+def read_conf(path=CONF):
+    """key = value lines; ics may repeat. Lines starting with # are comments."""
+    conf = {"ics": []}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = (s.strip() for s in line.split("=", 1))
+                k = k.lower()
+                if k == "ics":
+                    conf["ics"].append(v)
+                else:
+                    conf[k] = v
+    except FileNotFoundError:
+        pass
+    return conf
+
+
+def clean(s):
+    return re.sub(r"[\t\r\n]+", " ", str(s if s is not None else "")).strip()
+
+
+def get(url, headers=None, data=None):
+    req = urllib.request.Request(url, data=data, headers={"User-Agent": UA, **(headers or {})})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return r.read()
+
+
+# ---- weather (Open-Meteo, no key needed) --------------------------------------
+
+def wmo_icon(code):
+    code = int(code)
+    if code == 0:
+        return "sun", "Clear"
+    if code in (1, 2):
+        return "partly", "Partly cloudy"
+    if code == 3:
+        return "cloud", "Overcast"
+    if code in (45, 48):
+        return "fog", "Fog"
+    if 51 <= code <= 57:
+        return "rain", "Drizzle"
+    if 61 <= code <= 67 or 80 <= code <= 82:
+        return "rain", "Rain" if code < 80 else "Showers"
+    if 71 <= code <= 77 or code in (85, 86):
+        return "snow", "Snow"
+    if code >= 95:
+        return "storm", "Thunderstorm"
+    return "cloud", "Cloudy"
+
+
+def weather(conf, out):
+    lat, lon = conf.get("latitude"), conf.get("longitude")
+    if not lat or not lon:
+        return
+    imperial = conf.get("units", "metric").lower().startswith("imp")
+    q = {
+        "latitude": lat, "longitude": lon, "timezone": "auto", "forecast_days": 4,
+        "current": "temperature_2m,weather_code,wind_speed_10m",
+        "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+    }
+    if imperial:
+        q.update(temperature_unit="fahrenheit", wind_speed_unit="mph")
+    data = json.loads(get("https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode(q)))
+    cur = data["current"]
+    icon, desc = wmo_icon(cur["weather_code"])
+    wind = "%d %s" % (round(cur["wind_speed_10m"]), "mph" if imperial else "km/h")
+    out.append(["now", "%d°" % round(cur["temperature_2m"]), icon, desc, wind])
+    d = data["daily"]
+    for i, day in enumerate(d["time"]):
+        icon, _ = wmo_icon(d["weather_code"][i])
+        rain = d["precipitation_probability_max"][i]
+        out.append(["day", day, icon, "%d°" % round(d["temperature_2m_min"][i]),
+                    "%d°" % round(d["temperature_2m_max"][i]), "" if rain is None else "%d%%" % rain])
+
+
+# ---- calendars (.ics) ---------------------------------------------------------
+
+DAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+
+
+def parse_dt(value, params):
+    """A DTSTART-like value as (aware datetime, all_day)."""
+    value = value.strip()
+    if params.get("VALUE") == "DATE" or re.fullmatch(r"\d{8}", value):
+        d = dt.datetime.strptime(value[:8], "%Y%m%d")
+        return d.replace(tzinfo=LOCAL), True
+    utc = value.endswith("Z")
+    d = dt.datetime.strptime(value.rstrip("Z")[:15], "%Y%m%dT%H%M%S")
+    if utc:
+        return d.replace(tzinfo=dt.timezone.utc), False
+    tz = LOCAL
+    if "TZID" in params and ZoneInfo:
+        try:
+            tz = ZoneInfo(params["TZID"].strip('"'))
+        except Exception:
+            tz = LOCAL  # names like "W. Europe Standard Time" from Outlook
+    return d.replace(tzinfo=tz), False
+
+
+def parse_duration(s):
+    m = re.fullmatch(r"([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?", s.strip())
+    if not m:
+        return None
+    sign = -1 if m.group(1) == "-" else 1
+    w, d, h, mi, se = (int(g or 0) for g in m.groups()[1:])
+    return sign * dt.timedelta(weeks=w, days=d, hours=h, minutes=mi, seconds=se)
+
+
+def vevents(text):
+    text = re.sub(r"\r?\n[ \t]", "", text)  # unfold
+    ev = None
+    for line in text.splitlines():
+        if line == "BEGIN:VEVENT":
+            ev = {}
+        elif line == "END:VEVENT":
+            if ev is not None:
+                yield ev
+            ev = None
+        elif ev is not None and ":" in line:
+            head, value = line.split(":", 1)
+            parts = head.split(";")
+            params = {}
+            for p in parts[1:]:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    params[k.upper()] = v
+            ev.setdefault(parts[0].upper(), []).append((value, params))
+
+
+def unescape(s):
+    return s.replace("\\n", " ").replace("\\N", " ").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+
+
+def nth_weekday(year, month, wd, n):
+    """The n-th weekday wd (0 = Monday) of a month; n < 0 counts from the end."""
+    days = [d for d in range(1, calendar.monthrange(year, month)[1] + 1) if dt.date(year, month, d).weekday() == wd]
+    try:
+        return days[n - 1] if n > 0 else days[n]
+    except IndexError:
+        return None
+
+
+def occurrences(start, rule, until_window):
+    """Start datetimes of a recurring event, from its first one up to the end
+    of the window. The common rules: DAILY, WEEKLY (BYDAY), MONTHLY (BYDAY
+    like 2TU or -1FR, or BYMONTHDAY) and YEARLY, with INTERVAL, COUNT, UNTIL."""
+    r = dict(p.split("=", 1) for p in rule.split(";") if "=" in p)
+    freq = r.get("FREQ", "")
+    interval = max(1, int(r.get("INTERVAL", "1")))
+    count = int(r["COUNT"]) if "COUNT" in r else None
+    until = None
+    if "UNTIL" in r:
+        until, _ = parse_dt(r["UNTIL"], {})
+    tz, t = start.tzinfo, start.timetz().replace(tzinfo=None)
+
+    def at(day):
+        return dt.datetime.combine(day, t).replace(tzinfo=tz)
+
+    byday = [(int(m.group(1) or 0), DAYS.index(m.group(2)))
+             for m in (re.fullmatch(r"([+-]?\d+)?(MO|TU|WE|TH|FR|SA|SU)", d) for d in r.get("BYDAY", "").split(",") if d) if m]
+    bymonthday = [int(x) for x in r.get("BYMONTHDAY", "").split(",") if x]
+    d0, n, k = start.date(), 0, 0
+    while k < 20000:
+        if freq == "DAILY":
+            days = [d0 + dt.timedelta(days=k * interval)]
+        elif freq == "WEEKLY":
+            monday = d0 - dt.timedelta(days=d0.weekday()) + dt.timedelta(weeks=k * interval)
+            days = [monday + dt.timedelta(days=wd) for wd in sorted({wd for _, wd in byday} or {d0.weekday()})]
+        elif freq == "MONTHLY":
+            y, m = divmod(d0.month - 1 + k * interval, 12)
+            y, m = d0.year + y, m + 1
+            nums = []
+            if byday:
+                nums = [nth_weekday(y, m, wd, nth or 1) for nth, wd in byday]
+            else:
+                last = calendar.monthrange(y, m)[1]
+                nums = [(md if md > 0 else last + md + 1) for md in (bymonthday or [d0.day])]
+                nums = [x for x in nums if 1 <= x <= last]
+            days = sorted(dt.date(y, m, x) for x in nums if x)
+        elif freq == "YEARLY":
+            try:
+                days = [d0.replace(year=d0.year + k * interval)]
+            except ValueError:  # 29 February
+                days = []
+        else:
+            return
+        for day in days:
+            if day < d0:
+                continue
+            s = at(day)
+            if until and s > until:
+                return
+            if s > until_window:
+                return
+            n += 1
+            if count is not None and n > count:
+                return
+            yield s
+        k += 1
+
+
+def calendars(conf, out, now, errors):
+    days_ahead = max(1, min(14, int(conf.get("days", "3") or 3)))
+    win_start = dt.datetime.combine(now.astimezone(LOCAL).date(), dt.time()).replace(tzinfo=LOCAL)
+    win_end = win_start + dt.timedelta(days=days_ahead)
+    events = []
+    for url in conf["ics"]:
+        url = url.replace("webcal://", "https://", 1)
+        try:
+            text = get(url).decode("utf-8", "replace")
+        except Exception as e:
+            errors.append(["error", "Calendar", clean(e)[:120]])
+            continue
+        overrides, masters = {}, []
+        for ev in vevents(text):
+            if ev.get("STATUS", [("", {})])[0][0].upper() == "CANCELLED" and "RECURRENCE-ID" not in ev:
+                continue
+            if "DTSTART" not in ev:
+                continue
+            if "RECURRENCE-ID" in ev:
+                rid, _ = parse_dt(*ev["RECURRENCE-ID"][0])
+                overrides[(ev.get("UID", [("", {})])[0][0], rid.timestamp())] = ev
+            masters.append(ev)
+        for ev in masters:
+            start, allday = parse_dt(*ev["DTSTART"][0])
+            if "DTEND" in ev:
+                end, _ = parse_dt(*ev["DTEND"][0])
+                length = end - start
+            elif "DURATION" in ev:
+                length = parse_duration(ev["DURATION"][0][0]) or dt.timedelta()
+            else:
+                length = dt.timedelta(days=1) if allday else dt.timedelta()
+            title = unescape(ev.get("SUMMARY", [("(no title)", {})])[0][0])
+            where = unescape(ev.get("LOCATION", [("", {})])[0][0])
+            cancelled = ev.get("STATUS", [("", {})])[0][0].upper() == "CANCELLED"
+            uid = ev.get("UID", [("", {})])[0][0]
+            if "RRULE" in ev and "RECURRENCE-ID" not in ev:
+                ex = set()
+                for v, p in ev.get("EXDATE", []):
+                    for one in v.split(","):
+                        try:
+                            ex.add(parse_dt(one, p)[0].timestamp())
+                        except ValueError:
+                            pass
+                starts = [s for s in occurrences(start, ev["RRULE"][0][0], win_end)
+                          if s.timestamp() not in ex and (uid, s.timestamp()) not in overrides]
+            else:
+                starts = [] if cancelled else [start]
+            for s in starts:
+                e = s + length
+                if e > win_start and s < win_end and (e > now or allday):
+                    events.append((s, e, allday, title, where))
+    events.sort(key=lambda x: (x[0].astimezone(LOCAL).date(), not x[2], x[0]))
+    for s, e, allday, title, where in events[:40]:
+        out.append(["event", int(s.timestamp()), int(e.timestamp()), int(allday), clean(title), clean(where)])
+
+
+# ---- your server --------------------------------------------------------------
+
+def server_headers(conf):
+    return {"X-Inkwell-Token": conf.get("token", "")}
+
+
+def server(conf, out):
+    base = conf.get("server", "").rstrip("/")
+    if not base:
+        return
+    data = json.loads(get(base + "/kindle", server_headers(conf)))
+    if data.get("title"):
+        out.append(["srvtitle", clean(data["title"])])
+    for item in data.get("lines", [])[:16]:
+        out.append(["line", clean(item.get("label")), clean(item.get("value"))])
+    for b in data.get("buttons", [])[:8]:
+        if b.get("id"):
+            out.append(["button", clean(b["id"]), clean(b.get("label") or b["id"])])
+
+
+def action(conf, ident):
+    base = conf.get("server", "").rstrip("/")
+    if not base:
+        print("No server in dashboard.conf")
+        return 1
+    try:
+        raw = get(base + "/action/" + urllib.parse.quote(ident, safe=""), server_headers(conf), data=b"")
+        reply = json.loads(raw or b"{}")
+        print(clean(reply.get("message") or "Done"))
+        return 0 if reply.get("ok", True) else 1
+    except urllib.error.HTTPError as e:
+        try:  # the server's own words, such as a wrong token
+            print(clean(json.loads(e.read())["message"]))
+        except Exception:
+            print("The server said %d %s" % (e.code, clean(e.reason)))
+    except Exception as e:
+        print(clean(e)[:120] or "Couldn't reach the server")
+    return 1
+
+
+# ---- main ---------------------------------------------------------------------
+
+def fetch(conf):
+    now = dt.datetime.now(dt.timezone.utc)
+    out, errors = [["updated", int(time.time())]], []
+    if conf.get("place"):
+        out.append(["place", clean(conf["place"])])
+    for name, job in (("Weather", lambda: weather(conf, out)),
+                      ("Calendar", lambda: calendars(conf, out, now, errors)),
+                      ("Server", lambda: server(conf, out))):
+        try:
+            job()
+        except Exception as e:
+            errors.append(["error", name, clean(e)[:120] or type(e).__name__])
+    out += errors
+    tmp = CACHE + ".new"
+    with open(tmp, "w", encoding="utf-8") as f:
+        for row in out:
+            f.write("\t".join(str(x) for x in row) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, CACHE)
+
+
+def main():
+    conf = read_conf()
+    if len(sys.argv) == 3 and sys.argv[1] == "action":
+        return action(conf, sys.argv[2])
+    if len(sys.argv) != 1:
+        print(__doc__.split("\n\n")[1])
+        return 2
+    os.makedirs(os.path.dirname(LOCK), exist_ok=True)
+    with open(LOCK, "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fcntl.flock(lock, fcntl.LOCK_EX)  # another fetch is running: wait for its result
+            return 0
+        fetch(conf)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

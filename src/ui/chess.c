@@ -473,7 +473,7 @@ static const char *game_result(void) {
 
 static void save_game(void) {
     mkdir(SAVE_DIR, 0755);
-    FILE *f = fopen(SAVE_FILE, "w");
+    FILE *f = save_begin(SAVE_FILE);
     if (!f) return;
     fprintf(f, "%d %d\n", player, lv);
     for (int i = 0; i < nhist; i++) {
@@ -483,7 +483,7 @@ static void save_game(void) {
         fprintf(f, "%s%s%s ", a, b, hist[i].m.promo ? (char[]){PIECE_CH[hist[i].m.promo] + 32, 0} : "");
     }
     fputc('\n', f);
-    fclose(f);
+    save_end(f, SAVE_FILE, 0);
 }
 
 static int parse_sq(const char *s) {

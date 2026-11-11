@@ -158,14 +158,27 @@ static void editor_frame(void) {
     draw_text_area();
 }
 
-static void save(const char *file) {
+/* Returns 0 when the note is safely on the drive. */
+static int save(const char *file) {
     char path[160];
     snprintf(path, sizeof path, DIR_NOTES "/%s", file);
-    if (text_len == 0) { unlink(path); return; }
-    FILE *f = fopen(path, "w");
-    if (f) { fwrite(text_buf, 1, text_len, f); fclose(f); }
-    sync();
+    if (text_len == 0) { unlink(path); sync(); return 0; }
+    FILE *f = save_begin(path);
+    if (f) fwrite(text_buf, 1, text_len, f);
+    return save_end(f, path, 1);
 }
+
+/* Saves on the way out of the editor, and says so if it didn't work, since
+ * the owner would otherwise believe the note was kept. */
+static void save_or_warn(const char *file) {
+    if (save(file) == 0) return;
+    toast("Couldn't save the note. Is the drive full?");
+    sleep(3);
+}
+
+/* Typing is saved every so often too, so a flat battery or a crash loses
+ * at most this many seconds of it. */
+#define AUTOSAVE_S 20
 
 /* Edits a note in place. A NULL file starts a new one. */
 static void edit(const char *file) {
@@ -183,14 +196,21 @@ static void edit(const char *file) {
     text_buf[text_len] = 0;
     editor_frame();
     flip();
-    int dirty = 0, area_top = ED_Y + 10, area_h = KB_TOP - 30 - area_top;
+    int dirty = 0, unsaved = 0, area_top = ED_Y + 10, area_h = KB_TOP - 30 - area_top;
+    time_t saved_at = time(0);
     for (;;) {
-        event e = input_wait(dirty ? 700 : -1);
+        event e = input_wait(dirty ? 700 : unsaved ? AUTOSAVE_S * 1000 : -1);
+        if (unsaved && (e.type == EV_NONE || time(0) - saved_at >= AUTOSAVE_S) && time(0) - saved_at >= 5) {
+            /* a pause in typing, or long enough since the last save (at most
+             * one save every 5 s, to spare the flash) */
+            if (save(name) == 0) unsaved = 0;
+            saved_at = time(0);
+        }
         if (e.type == EV_NONE) {
             if (dirty) { refresh(0, area_top, W, area_h, WF_GL16, 0, 0); dirty = 0; }
             continue;
         }
-        if (e.type == EV_POWER) { save(name); return; }
+        if (e.type == EV_POWER) { save_or_warn(name); return; }
         if (e.type == EV_DOWN) {
             if (hit(back_btn, e.x, e.y)) press_on(back_btn);
             else if (hit(del_btn, e.x, e.y)) press_on(del_btn);
@@ -198,8 +218,8 @@ static void edit(const char *file) {
             continue;
         }
         if (e.type != EV_TAP) continue;
-        if (hit(back_btn, e.x, e.y)) { press_forget(); save(name); return; }
-        if (hit(del_btn, e.x, e.y)) { press_forget(); text_len = 0; save(name); return; }
+        if (hit(back_btn, e.x, e.y)) { press_forget(); save_or_warn(name); return; }
+        if (hit(del_btn, e.x, e.y)) { press_forget(); text_len = 0; save_or_warn(name); return; }
         int c = kb_tap(e.x, e.y);
         if (c == K_NONE) continue;
         if (c == K_BACK) {
@@ -213,7 +233,7 @@ static void edit(const char *file) {
         text_buf[text_len] = 0;
         draw_text_area();
         refresh(0, area_top, W, area_h, WF_A2, 0, 0);
-        dirty = 1;
+        dirty = unsaved = 1;
     }
 }
 
