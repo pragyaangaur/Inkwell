@@ -1,7 +1,5 @@
 # Inkwell
 
-This is a fork of [Inkwell](https://github.com/pragyaangaur/Inkwell) by Pragyaan Gaur, modified by Pietro Boccaletto to also run on the **Kindle Paperwhite 4**. The original runs on the Paperwhite 3, and this fork keeps it working there. [The Paperwhite 4 port](#the-paperwhite-4-port) lists what changed.
-
 Featured on Hackaday: [It's Alpine Linux, On A Kindle Paperwhite 3](https://hackaday.com/2026/11/06/its-alpine-linux-on-a-kindle-paperwhite-3/) (6 November 2026).
 
 Inkwell is a small Linux system of its own for the jailbroken Kindle Paperwhite 3 and Paperwhite 4. Amazon's bootloader and kernel still start the device, and everything after that is replaced: the home screen, the apps, Wi-Fi, USB networking and SSH all come from an Alpine Linux userspace built for the e-ink panel.
@@ -60,7 +58,7 @@ The home screen also has a clock, the date, the battery and a frontlight slider.
 
 You need a **Kindle Paperwhite 3** (the 7th generation, from 2015) or a **Kindle Paperwhite 4** (the 10th generation, from 2018) that is already jailbroken. [kindlemodding.org](https://kindlemodding.org) explains how to jailbreak it, for example with WinterBreak. The original Inkwell was built and tested on a Paperwhite 3 with firmware 5.16.2.1.1, and the port on a Paperwhite 4 with firmware 5.18.1. It needs about 1.5 GB of free space. The same release works on both models and finds out at boot which one it is on.
 
-1. Download the `Inkwell` zip file from the [latest release](https://github.com/pboccaletto/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
+1. Download the `Inkwell` zip file from the [latest release](https://github.com/pragyaangaur/Inkwell/releases/latest) and unzip it. It contains two folders, `linux` and `documents`.
 2. Connect the Kindle to your computer with a USB cable, so it shows up as a drive.
 3. Copy both folders to the top of the Kindle's drive. The `documents` folder already exists there, so let your computer merge the two.
 4. Eject the Kindle and unplug it.
@@ -160,7 +158,7 @@ Quill's model runs in `inkllm`, a small program around llama.cpp that Quill talk
 
 ## The Paperwhite 4 port
 
-The Paperwhite 4 has the same 1072x1448 screen as the Paperwhite 3, but almost every driver underneath is different. One image runs on both: the programs read `/proc/device-tree/compatible` (the Paperwhite 3's kernel has no device tree, the Paperwhite 4's says `amzn,imx6sll-rex`) and pick the right behaviour.
+[Pietro Boccaletto](https://github.com/akaped) ported Inkwell to the Paperwhite 4 and tested it there. The Paperwhite 4 has the same 1072x1448 screen as the Paperwhite 3, but almost every driver underneath is different. One image runs on both: the programs read `/proc/device-tree/compatible` (the Paperwhite 3's kernel has no device tree, the Paperwhite 4's says `amzn,imx6sll-rex`) and pick the right behaviour.
 
 | | Paperwhite 3 | Paperwhite 4 |
 | --- | --- | --- |
@@ -198,14 +196,14 @@ The Paperwhite 4 has the same 1072x1448 screen as the Paperwhite 3, but almost e
 
 ## Build it yourself
 
-The build runs on macOS (Apple Silicon or Intel) and on Linux. On Linux, the simplest way is an Alpine container with `clang llvm lld cmake samurai python3 e2fsprogs e2fsprogs-extra perl-utils curl zip`, the same set the GitHub Actions workflow uses. On macOS:
+The build runs on macOS (Apple Silicon or Intel) and on Linux. On Linux, the simplest way is an Alpine container with `clang llvm lld cmake samurai python3 e2fsprogs e2fsprogs-extra perl-utils curl zip`. On macOS:
 
 ```bash
 brew install llvm lld cmake ninja e2fsprogs
 ```
 
 ```bash
-git clone https://github.com/pboccaletto/Inkwell.git && cd Inkwell
+git clone https://github.com/pragyaangaur/Inkwell.git && cd Inkwell
 ```
 
 ```bash
@@ -230,8 +228,6 @@ tools/fetch.sh
 | `kindle/documents/` | The library scriptlets that install, start, stop and uninstall |
 | `tools/` | Cross compilers, fetch and release scripts, SSH helpers, the Dashboard's server |
 | `fonts/`, `third_party/` | The typefaces with their licences, and stb_truetype |
-
-GitHub Actions builds the release on every push to `main` (`.github/workflows/build.yml`), and the zip can be downloaded from the run's artifacts. Pushing a tag such as `v1.3.0` also publishes it as a GitHub release. The workflow fetches only the quick model (`QUICK_ONLY=1 tools/fetch.sh`), since `getmodel` downloads the others on the Kindle.
 
 ## Credits
 
