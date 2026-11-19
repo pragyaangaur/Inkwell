@@ -118,7 +118,7 @@ Inkwell runs an SSH server on the USB link. The Kindle is `192.168.15.244`, and 
 2. In the normal Kindle UI, copy that `.pub` file to the Kindle's drive as `linux/authorized_keys`.
 3. Boot Inkwell, plug in the cable and run `./ssh.sh` again to get a root shell.
 
-Password logins are off on the USB link, and the release image carries no keys, so nobody can log in until you add yours. This server only listens on the USB link. Inside, `kindle <command>` runs a command in the Kindle's own system, `tap x y` sends a touch to the screen and `tools/shot.sh name` (on your computer) saves a screenshot to `out/name.png`. `tools/push.sh` copies files into the running system without rebuilding the image.
+Password logins are off on this server, and the release image carries no keys, so nobody can log in until you add yours. It also answers on Wi-Fi, at the address the Wi-Fi app shows, so your key works there too. Inside, `kindle <command>` runs a command in the Kindle's own system, `tap x y` sends a touch to the screen and `tools/shot.sh name` (on your computer) saves a screenshot to `out/name.png`. `tools/push.sh` copies files into the running system without rebuilding the image.
 
 ### SSH over Wi-Fi
 

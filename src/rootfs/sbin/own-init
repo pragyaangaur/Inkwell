@@ -50,13 +50,15 @@ bat_status() {
 # Networking comes up in the background so the home screen appears first.
 (
     # USB: the Kindle is 192.168.15.244 and hands the computer an address.
-    # Its SSH server takes keys only, and listens on the USB link alone, so
-    # Wi-Fi can't reach it. ssh-wifi runs a separate one for Wi-Fi.
     if ifconfig usb0 192.168.15.244 netmask 255.255.255.0 up; then
         touch /run/udhcpd.leases
         udhcpd /etc/own/udhcpd.conf
-        dropbear -R -s -p 192.168.15.244:22 -p 192.168.15.244:2222 -P /run/dropbear.pid
     fi
+    # The main SSH server takes keys only and listens everywhere, so a key
+    # still gets in over Wi-Fi when the USB link is down. ssh-wifi runs a
+    # second server on port 2022 that also takes the password set in the
+    # SSH app, and only while that app has it turned on.
+    dropbear -R -s -p 22 -p 2222 -P /run/dropbear.pid
     ssh-wifi boot
 
     # Wi-Fi: wpa_supplicant always runs so the Wi-Fi app can scan and join.

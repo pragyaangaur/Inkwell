@@ -2,8 +2,8 @@
  * on and off, keeps it running while the Kindle sleeps if asked, shows the
  * address to connect to, and sets root's password for it. The password is
  * kept only as a SHA-512 crypt hash, in /mnt/us/linux/ssh-password, and
- * ssh-wifi copies it into /etc/shadow. The SSH server on the USB link is
- * separate and still takes keys only. */
+ * ssh-wifi copies it into /etc/shadow. The main SSH server (ports 22 and
+ * 2222) is separate and still takes keys only. */
 #include "ui.h"
 #include <arpa/inet.h>
 #include <crypt.h>

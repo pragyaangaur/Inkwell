@@ -1,6 +1,6 @@
 #!/bin/sh
 # ssh-wifi: SSH over Wi-Fi. A second Dropbear on port 2022 that, unlike the
-# keys-only one on the USB link, also accepts root's password. The SSH app and
+# keys-only one on ports 22 and 2222, also accepts root's password. The SSH app and
 # own-init drive it. Its state lives on the userstore, so it survives a new
 # alpine.img:
 #   linux/ssh-wifi         present while it should run
