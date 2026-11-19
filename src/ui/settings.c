@@ -8,7 +8,6 @@
 #include <sys/utsname.h>
 #include <time.h>
 
-#define BATTERY "/sys/class/power_supply/max77696-battery/"
 #define BATTERY_LOG "/mnt/us/linux/battery.log"
 #define DAY (24 * 3600)
 
@@ -109,15 +108,15 @@ static void draw(void) {
     }
     snprintf(buf, sizeof buf, "%ldh %02ldm", si.uptime / 3600, si.uptime / 60 % 60);
     about_row(&y, "Up for", buf);
-    read_str(BATTERY "capacity", a, sizeof a);
-    read_str(BATTERY "status", b, sizeof b);
+    read_str(BATTERY_FILE("capacity"), a, sizeof a);
+    battery_status(b, sizeof b);
     snprintf(buf, sizeof buf, "%s%%, %s", a, b);
     about_row(&y, "Battery", buf);
-    read_str(BATTERY "cycle_count", a, sizeof a);
+    battery_cycles(a, sizeof a);
     snprintf(buf, sizeof buf, "%s cycles", a[0] ? a : "?");
     about_row(&y, "Battery age", buf);
     read_str("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", a, sizeof a);
-    snprintf(buf, sizeof buf, "i.MX6 SoloLite, %s", a);
+    snprintf(buf, sizeof buf, "%s, %s", board_cpu(), a);
     about_row(&y, "Processor", buf);
 
     text_center(&f_hand, 40, W / 2, H - 66, "everything on this screen is yours", 0x60);

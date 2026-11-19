@@ -190,8 +190,69 @@ static void icon_terminal(float cx, float cy, float s) {
     line(x + w * 0.46f, y + h * 0.7f, x + w * 0.74f, y + h * 0.7f, t, BLACK);
 }
 
+/* A key lying on its side: a round bow, the shaft and two bits. */
+static void icon_key(float cx, float cy, float s) {
+    float t = s * 0.06f, r = s * 0.15f, bx = cx - s * 0.2f, x1 = cx + s * 0.34f;
+    ring(bx, cy, r, t, BLACK);
+    disc(bx, cy, r * 0.32f, BLACK);
+    line(bx + r, cy, x1, cy, t, BLACK);
+    line(x1 - t / 2, cy, x1 - t / 2, cy + s * 0.14f, t, BLACK);
+    line(x1 - s * 0.13f, cy, x1 - s * 0.13f, cy + s * 0.1f, t, BLACK);
+}
+
 /* The black knight from the chess font. */
 static void icon_knight(float cx, float cy, float s) { glyph_center(&f_chess, (int)(s * 1.1f), 0x265E, cx, cy, BLACK); }
+
+/* A desk calendar with two rings and a marked day, for the Dashboard. */
+static void icon_calendar(float cx, float cy, float s) {
+    float t = s * 0.06f, w = s * 0.66f, h = s * 0.6f, x = cx - w / 2, y = cy - h / 2 + s * 0.04f;
+    rrect_line(x, y, w, h, s * 0.06f, t, BLACK);
+    rrect_fill(x, y, w, h * 0.26f, s * 0.06f, BLACK);
+    for (int i = 0; i < 2; i++) line(x + w * (0.3f + 0.4f * i), y - s * 0.07f, x + w * (0.3f + 0.4f * i), y + s * 0.05f, t, BLACK);
+    for (int r = 0; r < 2; r++)
+        for (int c = 0; c < 3; c++) disc(x + w * (0.25f + 0.25f * c), y + h * (0.48f + 0.26f * r), s * 0.035f, 0x50);
+    ring(x + w * 0.75f, y + h * 0.74f, s * 0.07f, t * 0.7f, BLACK);
+}
+
+/* ---- weather ------------------------------------------------------------------ */
+
+/* A cloud's outline: three bumps on a flat base. */
+static void cloud_shape(float cx, float cy, float s, float grow, unsigned char ink) {
+    disc(cx - s * 0.2f, cy + s * 0.04f, s * 0.15f + grow, ink);
+    disc(cx + s * 0.02f, cy - s * 0.06f, s * 0.21f + grow, ink);
+    disc(cx + s * 0.22f, cy + s * 0.06f, s * 0.13f + grow, ink);
+    rrect_fill(cx - s * 0.35f - grow, cy + s * 0.02f - grow, s * 0.7f + 2 * grow, s * 0.17f + 2 * grow, s * 0.08f + grow, ink);
+}
+static void icon_cloud(float cx, float cy, float s, unsigned char fill_ink) {
+    cloud_shape(cx, cy, s, s * 0.045f, BLACK);
+    cloud_shape(cx, cy, s, 0, fill_ink);
+}
+
+/* sun, partly, cloud, rain, snow, fog or storm, as dashboard-fetch names them. */
+static void weather_icon(const char *name, float cx, float cy, float s) {
+    float t = s * 0.05f;
+    if (!strcmp(name, "sun")) { icon_sun(cx, cy, s, BLACK); return; }
+    if (!strcmp(name, "partly")) {
+        icon_sun(cx - s * 0.16f, cy - s * 0.14f, s * 0.75f, BLACK);
+        icon_cloud(cx + s * 0.06f, cy + s * 0.08f, s * 0.85f, WHITE);
+        return;
+    }
+    if (!strcmp(name, "fog")) {
+        for (int i = 0; i < 4; i++) line(cx - s * (0.34f - 0.06f * (i & 1)), cy - s * 0.2f + i * s * 0.13f, cx + s * (0.34f - 0.06f * !(i & 1)), cy - s * 0.2f + i * s * 0.13f, t, BLACK);
+        return;
+    }
+    int wet = !strcmp(name, "rain"), snow = !strcmp(name, "snow"), storm = !strcmp(name, "storm");
+    float up = wet || snow || storm ? s * 0.12f : 0;
+    icon_cloud(cx, cy - up, s, wet || storm ? 0xC0 : WHITE);
+    float by = cy - up + s * 0.27f;
+    if (wet) for (int i = 0; i < 3; i++) line(cx - s * 0.18f + i * s * 0.17f, by, cx - s * 0.23f + i * s * 0.17f, by + s * 0.16f, t, BLACK);
+    if (snow) for (int i = 0; i < 3; i++) { disc(cx - s * 0.18f + i * s * 0.18f, by + s * 0.05f + (i & 1) * s * 0.08f, s * 0.035f, BLACK); }
+    if (storm) {
+        float bolt[] = {cx + s * 0.04f, by - s * 0.02f, cx - s * 0.08f, by + s * 0.12f, cx, by + s * 0.12f, cx - s * 0.06f, by + s * 0.26f,
+                        cx + s * 0.1f, by + s * 0.08f, cx + s * 0.02f, by + s * 0.08f};
+        poly_fill(bolt, 6, BLACK);
+    }
+}
 
 static void icon(const char *name, float cx, float cy, float s) {
     if (!strcmp(name, "book")) icon_book(cx, cy, s);
@@ -207,6 +268,8 @@ static void icon(const char *name, float cx, float cy, float s) {
     else if (!strcmp(name, "terminal")) icon_terminal(cx, cy, s);
     else if (!strcmp(name, "knight")) icon_knight(cx, cy, s);
     else if (!strcmp(name, "paper")) icon_paper(cx, cy, s);
+    else if (!strcmp(name, "key")) icon_key(cx, cy, s);
+    else if (!strcmp(name, "calendar")) icon_calendar(cx, cy, s);
     else icon_drop(cx, cy, s);
 }
 

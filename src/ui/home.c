@@ -13,8 +13,6 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 
-#define LIGHT "/sys/class/backlight/max77696-bl/"
-#define BATTERY "/sys/class/power_supply/max77696-battery/"
 
 typedef struct { char label[32], icon[16], cmd[200]; rect r; } app;
 static app apps[16];
@@ -117,8 +115,8 @@ static void draw_status(void) {
         char c[2] = {*p, 0};
         x = text(&f_ui_bold, 26, x, STATUS_Y, c, BLACK) + 7;
     }
-    int pct = read_int(BATTERY "capacity");
-    read_str(BATTERY "status", st, sizeof st);
+    int pct = read_int(BATTERY_FILE("capacity"));
+    battery_status(st, sizeof st);
     snprintf(buf, sizeof buf, "%d%%", pct);
     int rx = W - MARGIN;
     text_right(&f_ui_bold, 28, rx, STATUS_Y - 2, buf, BLACK);
@@ -168,7 +166,7 @@ static void draw_app(const app *a) {
 }
 
 static int light_level(void) {
-    int b = read_int(LIGHT "brightness"), m = read_int(LIGHT "max_brightness");
+    int b = read_int(LIGHT_FILE("brightness")), m = read_int(LIGHT_FILE("max_brightness"));
     if (m <= 0 || b <= 0) return 0;
     /* the slider is quadratic, which spreads out the dim end where eyes are fussy */
     return (int)(sqrtf((float)b / m) * 100 + 0.5f);
@@ -213,6 +211,7 @@ static void draw_home(int flash) {
 
 static int run_app(const app *a) {
     int st = 0;
+    wait_last_update(); /* the pressed icon reaches the panel before the app draws */
     pid_t pid = fork();
     if (pid == 0) {
         setsid();
@@ -221,16 +220,17 @@ static int run_app(const app *a) {
     }
     if (pid > 0) waitpid(pid, &st, 0);
     input_drain();
+    screen_taken_back();
     return WIFEXITED(st) ? WEXITSTATUS(st) : 0;
 }
 
 static void set_light_from(int x) {
-    int m = read_int(LIGHT "max_brightness");
+    int m = read_int(LIGHT_FILE("max_brightness"));
     if (m <= 0) return;
     float f = (float)(x - slider_x0) / (slider_x1 - slider_x0);
     f = f < 0 ? 0 : f > 1 ? 1 : f;
     int b = (int)(f * f * m + 0.5f);
-    write_int(LIGHT "brightness", b);
+    write_int(LIGHT_FILE("brightness"), b);
     write_int("/mnt/us/linux/light", b); /* own-init restores it at boot */
 }
 

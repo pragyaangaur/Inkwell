@@ -163,6 +163,8 @@ static void push(int kind, int block, int style, int link, const char *s, int n)
     if (ntoks >= cap_toks) { cap_toks *= 2; toks = realloc(toks, sizeof *toks * cap_toks); }
     if (ntoks && kind != T_WORD && toks[ntoks - 1].kind == T_BLOCK) { toks[ntoks - 1].block = block; return; }
     if (!ntoks && kind != T_WORD) return;
+    /* a word only exists with its text: drop it when the text store is full */
+    if (kind == T_WORD && (!s || textlen + n + 1 >= MAXDOC)) return;
     token *t = &toks[ntoks++];
     t->kind = kind; t->block = block; t->style = style; t->link = link;
     t->space = kind == T_WORD ? word_space : 0;
@@ -202,9 +204,14 @@ static int entity(const char *s, char *out, int *outn) {
         {"bull", 0x2022}, {"times", 0xD7}, {"deg", 0xB0}, {"eacute", 0xE9}, {"laquo", 0xAB}, {"raquo", 0xBB}, {"rarr", 0x2192}};
     int c = -1, len = 0;
     if (s[0] == '#') {
+        int hex = s[1] == 'x' || s[1] == 'X';
+        const char *digits = s + 1 + hex;
         char *end;
-        c = (s[1] == 'x' || s[1] == 'X') ? (int)strtol(s + 2, &end, 16) : (int)strtol(s + 1, &end, 10);
+        long v = strtol(digits, &end, hex ? 16 : 10);
+        if (end == digits) return 0; /* "&#" with no number is just text */
         len = end - s;
+        /* NUL, surrogates and anything past Unicode would make broken UTF-8 */
+        c = v <= 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) ? 0xFFFD : (int)v;
     } else {
         for (unsigned i = 0; i < sizeof named / sizeof *named; i++) {
             int l = strlen(named[i].name);
@@ -308,7 +315,10 @@ static void parse_html(const char *h, int n) {
                         if (*hr == '&') {
                             char ent[8];
                             int en = 0, el = entity(hr + 1, ent, &en);
-                            if (el) { memcpy(href + hl, ent, en); hl += en; hr += el + 1; continue; }
+                            if (el) {
+                                if (hl + en > 2047) break; /* no room for the whole character */
+                                memcpy(href + hl, ent, en); hl += en; hr += el + 1; continue;
+                            }
                         }
                         href[hl++] = *hr++;
                     }

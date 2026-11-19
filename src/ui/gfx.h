@@ -76,10 +76,13 @@ static void rrect_line(float x, float y, float w, float h, float r, float t, uns
 static void poly_fill(const float *xy, int n, unsigned char ink) {
     float ymin = 1e9f, ymax = -1e9f;
     for (int i = 0; i < n; i++) { ymin = fminf(ymin, xy[2 * i + 1]); ymax = fmaxf(ymax, xy[2 * i + 1]); }
-    static float acc[1100];
+    /* coverage per column; wide enough for the page either way round
+     * (the Dashboard draws 1448 wide when it lies down) */
+    static float acc[2048];
+    int wmax = W < 2048 ? W : 2048;
     for (int y = (int)ymin; y <= (int)ymax; y++) {
         if (y < 0 || y >= H) continue;
-        memset(acc, 0, sizeof acc);
+        int lo = wmax, hi = -1; /* the columns this row touches */
         for (int s = 0; s < 4; s++) {
             float sy = y + (s + 0.5f) / 4, xs[32];
             int k = 0;
@@ -89,13 +92,16 @@ static void poly_fill(const float *xy, int n, unsigned char ink) {
             }
             for (int a = 1; a < k; a++) for (int b = a; b > 0 && xs[b - 1] > xs[b]; b--) { float t = xs[b]; xs[b] = xs[b - 1]; xs[b - 1] = t; }
             for (int a = 0; a + 1 < k; a += 2)
-                for (int x = (int)xs[a]; x <= (int)xs[a + 1] && x < W; x++) {
+                for (int x = (int)xs[a]; x <= (int)xs[a + 1] && x < wmax; x++) {
                     if (x < 0) continue;
                     float l = fmaxf(xs[a], x), r = fminf(xs[a + 1], x + 1);
-                    if (r > l) acc[x] += (r - l) / 4;
+                    if (r <= l) continue;
+                    if (x < lo) { for (int c = x; c < (hi < 0 ? x + 1 : lo); c++) acc[c] = 0; lo = x; }
+                    if (x > hi) { for (int c = hi < 0 ? x : hi + 1; c <= x; c++) acc[c] = 0; hi = x; }
+                    acc[x] += (r - l) / 4;
                 }
         }
-        for (int x = 0; x < W; x++) if (acc[x] > 0) blend(x, y, ink, acc[x]);
+        for (int x = lo; x <= hi; x++) if (acc[x] > 0) blend(x, y, ink, acc[x]);
     }
 }
 

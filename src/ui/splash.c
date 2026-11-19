@@ -14,13 +14,16 @@ int main(int argc, char **argv) {
     text_center(&f_serif_bold, 150, W / 2, H / 2 - 40, "Inkwell", BLACK);
     if (a < argc) text_center(&f_serif_italic, 56, W / 2, H / 2 + 150, argv[a++], 0x40);
     if (a < argc) text_center(&f_ui, 32, W / 2, H - 160, argv[a++], 0x70);
+    first_page_pending = 0; /* waiting on it would only slow the boot */
     refresh(0, 0, W, H, WF_GC16, 1, 0);
     if (!wait_s) return 0;
     input_open();
     /* already holding the power button counts too, so the wait can be short */
     unsigned char keys[KEY_MAX / 8 + 1];
     memset(keys, 0, sizeof keys);
-    if (keyfd >= 0 && ioctl(keyfd, EVIOCGKEY(sizeof keys), keys) >= 0 && (keys[KEY_POWER / 8] & (1 << (KEY_POWER % 8)))) return 1;
+    int kfd[2] = {keyfd, keyfd2}; /* the PW4 has two power key devices */
+    for (int k = 0; k < 2; k++)
+        if (kfd[k] >= 0 && ioctl(kfd[k], EVIOCGKEY(sizeof keys), keys) >= 0 && (keys[KEY_POWER / 8] & (1 << (KEY_POWER % 8)))) return 1;
     input_drain();
     struct timespec t0, t;
     clock_gettime(CLOCK_MONOTONIC, &t0);

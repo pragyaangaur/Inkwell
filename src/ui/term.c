@@ -242,7 +242,8 @@ static void feed(unsigned char ch) {
     case S_CSI:
         if (ch >= '0' && ch <= '9') {
             if (!nparam) nparam = 1;
-            param[nparam - 1] = param[nparam - 1] * 10 + (ch - '0');
+            /* capped, so a long run of digits can't overflow */
+            if (param[nparam - 1] < 10000) param[nparam - 1] = param[nparam - 1] * 10 + (ch - '0');
         } else if (ch == ';') {
             if (!nparam) nparam = 1;
             if (nparam < 16) nparam++;
@@ -464,9 +465,9 @@ int main(void) {
         for (int r = 0; r < rows; r++) pending |= dirty_row[r];
         int timeout = pending ? 15 : a2_count ? 2500 : 60000;
         if (evq_head == evq_tail) {
-            struct pollfd p[3] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}, {master, POLLIN, 0}};
-            int got = poll(p, 3, timeout), out = 0;
-            if (got > 0 && (p[0].revents || p[1].revents)) input_read();
+            struct pollfd p[4] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}, {master, POLLIN, 0}, {keyfd2, POLLIN, 0}};
+            int got = poll(p, 4, timeout), out = 0;
+            if (got > 0 && (p[0].revents || p[1].revents || p[3].revents)) input_read();
             if (got > 0 && p[2].revents) {
                 ssize_t n = read(master, buf, sizeof buf);
                 if (n > 0) {

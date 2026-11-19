@@ -260,7 +260,13 @@ static void connect_to(net *n) {
         char prompt[160];
         snprintf(prompt, sizeof prompt, "Password for %s", n->ssid);
         if (!text_entry("Wi-Fi password", prompt, psk, sizeof psk, 1)) return;
-        if (strlen(psk) < 8) { draw_page(0); toast("Passwords are at least 8 characters"); sleep(2); draw_page(0); return; }
+        size_t pl = strlen(psk);
+        if (pl < 8 || pl > 63) {
+            /* WPA's limits: wpa_supplicant refuses anything else, which would show as a wrong password */
+            memset(psk, 0, sizeof psk);
+            draw_page(0); toast(pl < 8 ? "Passwords are at least 8 characters" : "Passwords are at most 63 characters"); sleep(2); draw_page(0);
+            return;
+        }
     }
     draw_page(0);
     if (fresh) {

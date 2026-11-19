@@ -218,9 +218,9 @@ int main(int argc, char **argv) {
     int dirty = 0, chat_dirty = 0;
     for (;;) {
         if (evq_head == evq_tail) {
-            struct pollfd p[3] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}, {llm_out, POLLIN, 0}};
-            int got = poll(p, 3, dirty || chat_dirty ? 500 : 60000);
-            if (got > 0 && (p[0].revents || p[1].revents)) input_read();
+            struct pollfd p[4] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}, {llm_out, POLLIN, 0}, {keyfd2, POLLIN, 0}};
+            int got = poll(p, 4, dirty || chat_dirty ? 500 : 60000);
+            if (got > 0 && (p[0].revents || p[1].revents || p[3].revents)) input_read();
             if (got == 0) idle_check();
         }
         while (llm_out >= 0 && llm_line(lnbuf, sizeof lnbuf)) {

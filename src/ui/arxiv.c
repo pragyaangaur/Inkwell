@@ -234,10 +234,12 @@ static void draw_main(void) {
 static void open_reader(const paper *pp) {
     char p[200];
     pdf_path(pp->id, p, sizeof p);
+    wait_last_update(); /* see eink.h: Books must not draw over an update in flight */
     pid_t pid = fork();
     if (pid == 0) { execl("/usr/local/bin/books", "books", p, pp->title, (char *)0); _exit(127); }
     if (pid > 0) waitpid(pid, 0, 0);
     input_drain();
+    screen_taken_back();
 }
 
 /* One paper: title, authors, date, abstract, and Save, Read or Remove. */
