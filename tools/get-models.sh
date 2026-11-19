@@ -22,7 +22,7 @@ get() { # repo file sha256 target
 PUSH=0
 if [ "$1" = --push ]; then PUSH=1; ./ssh.sh 'mkdir -p /mnt/us/linux/models'; fi
 get SmolLM2-135M-Instruct-GGUF SmolLM2-135M-Instruct-Q4_0.gguf bcc3af2849ad6095af57e9b5cd43775256efdc66e306acb529172f92d0c04b03 smollm2-135m-q4_0.gguf
-# QUICK_ONLY=1 stops at the quick model, the only one the release ships (CI uses it).
+# QUICK_ONLY=1 stops at the quick model, the only one the release ships.
 [ "$QUICK_ONLY" = 1 ] && exit 0
 get SmolLM2-360M-Instruct-GGUF SmolLM2-360M-Instruct-Q4_0.gguf c3608933eb6e5763b87f769bda40c204dc158333668c7af214644fe39da58627 smollm2-360m-q4_0.gguf
 get Qwen2.5-Coder-0.5B-Instruct-GGUF Qwen2.5-Coder-0.5B-Instruct-Q4_0.gguf bf52e650e19a33d965431b9b13d1ec2422c2a2be12274eaef1f15f3d5a330c6c qwen2.5-coder-0.5b-q4_0.gguf
