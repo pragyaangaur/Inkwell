@@ -73,9 +73,11 @@ static void helper_stop(void) {
     rpid = 0;
 }
 
-/* How long one answer may take. Laying out a long EPUB on this processor
- * takes a while, so it is generous: it only has to catch a hung helper. */
+/* How long one answer may take. It only has to catch a hung helper, so it
+ * is generous. Opening and laying out a book have no limit, as before: a
+ * long EPUB on this processor can take minutes, and that is not a hang. */
 #define HELPER_TIMEOUT_MS 180000
+static int helper_timeout = HELPER_TIMEOUT_MS;
 
 static int helper_line(char *out, int n) {
     for (;;) {
@@ -89,7 +91,9 @@ static int helper_line(char *out, int n) {
         }
         if (rlen >= (int)sizeof rbuf - 1) rlen = 0;
         struct pollfd p = {rout, POLLIN, 0};
-        if (rout < 0 || poll(&p, 1, HELPER_TIMEOUT_MS) <= 0) return 0;
+        int got;
+        do got = rout < 0 ? -1 : poll(&p, 1, helper_timeout); while (got < 0 && errno == EINTR);
+        if (got <= 0) return 0;
         int r = read(rout, rbuf + rlen, sizeof rbuf - 1 - rlen);
         if (r <= 0) return 0;
         rlen += r;
@@ -120,6 +124,7 @@ static int ask(char *reply, int n, const char *fmt, ...) {
     va_end(ap);
     strcat(cmd, "\n");
     int is_open = !strncmp(cmd, "open\t", 5), is_layout = !strncmp(cmd, "layout\t", 7);
+    helper_timeout = is_open || is_layout ? -1 : HELPER_TIMEOUT_MS;
     int r = ask_once(reply, n, cmd);
     if (r < 0) {
         char tmp[256];
@@ -129,10 +134,12 @@ static int ask(char *reply, int n, const char *fmt, ...) {
         rlen = 0;
         /* A book that broke the helper while opening would only do it
          * again, so that is not retried. The fresh helper serves the next. */
+        int t = helper_timeout;
+        helper_timeout = -1; /* reopening is an open and a layout */
         if (is_open) r = -1;
         else if (last_open[0] && ask_once(tmp, sizeof tmp, last_open) != 1) r = -1;
         else if (!is_layout && last_layout[0] && ask_once(tmp, sizeof tmp, last_layout) != 1) r = -1;
-        else r = ask_once(reply, n, cmd);
+        else { helper_timeout = t; r = ask_once(reply, n, cmd); }
     }
     if (r == 1 && is_open) { snprintf(last_open, sizeof last_open, "%s", cmd); last_layout[0] = 0; }
     if (r == 1 && is_layout) snprintf(last_layout, sizeof last_layout, "%s", cmd);
