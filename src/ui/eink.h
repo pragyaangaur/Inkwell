@@ -196,7 +196,7 @@ static long last_mk_ms;
  * and Books' library never appeared. So: before a big update right after
  * another one, before running another app, and when an app exits. */
 static void wait_last_update(void) {
-    if (!last_mk || fbfd < 0) return;
+    if (!last_mk || fbfd < 0 || !board_pw4()) return; /* the PW3 never needed it */
     unsigned m[2] = {last_mk, 0};
     ioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m);
     last_mk = 0;
@@ -216,11 +216,14 @@ static void refresh(int x, int y, int w, int h, int wf, int full, int wait) {
     if (x + w > W) w = W - x;
     if (y + h > H) h = H - y;
     if (w <= 0 || h <= 0) return;
-    int big = w * h >= W * H / 2, verify = first_page_pending && big;
+    /* The waits below fix updates the PW4's driver dropped. The PW3 has never
+     * shown that, and each wait costs it up to 660 ms, so it keeps drawing
+     * without them. */
+    int big = w * h >= W * H / 2, verify = first_page_pending && big && board_pw4();
     if (verify) first_page_pending = 0;
     /* a big update straight after another (a press, a toast) waits for it,
      * so the two can't collide; 1 s covers the slowest waveform */
-    if (big && last_mk && mono_ms() - last_mk_ms < 1000) wait_last_update();
+    if (big && board_pw4() && last_mk && mono_ms() - last_mk_ms < 1000) wait_last_update();
     unsigned mk = send_update(x, y, w, h, wf, full);
     if (mk) { last_mk = mk; last_mk_ms = mono_ms(); }
     if (!mk) {
@@ -477,7 +480,7 @@ static void input_open(void) {
             ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), &ay) == 0 && ax.maximum > 0) {
             touchfd = fd; tx0 = ax.minimum; tx1 = ax.maximum; ty0 = ay.minimum; ty1 = ay.maximum;
             touch_load();
-        } else if ((keyfd < 0 || keyfd2 < 0) && (strstr(name, "onkey") || strstr(name, "power"))) {
+        } else if ((keyfd < 0 || keyfd2 < 0) && (strstr(name, "onkey") || (board_pw4() && strstr(name, "power")))) {
             if (keyfd < 0) keyfd = fd; else keyfd2 = fd;
         } else {
             close(fd);
@@ -543,7 +546,7 @@ static int power_pressed(void) {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
     long ms = (t.tv_sec - last.tv_sec) * 1000 + (t.tv_nsec - last.tv_nsec) / 1000000;
-    if (last.tv_sec && ms < 500) return 0;
+    if (keyfd2 >= 0 && last.tv_sec && ms < 500) return 0; /* only needed with two devices */
     last = t;
     return 1;
 }
@@ -583,9 +586,11 @@ static void input_events(int quiet) {
 static event input_wait(int timeout_ms) {
     long deadline = timeout_ms >= 0 ? mono_ms() + timeout_ms : 0;
     /* Waiting for ever is done a minute at a time, so idle sleep can step in. */
-    while (evq_head == evq_tail) {
+    /* A timeout of 0 still looks once, without blocking, as it always did. */
+    for (int first = 1; evq_head == evq_tail; first = 0) {
         long left = timeout_ms >= 0 ? deadline - mono_ms() : 60000;
-        if (left <= 0) break;
+        if (left <= 0 && !(first && timeout_ms == 0)) break;
+        if (left < 0) left = 0;
         int step = left > 60000 ? 60000 : (int)left;
         struct pollfd p[3] = {{touchfd, POLLIN, 0}, {keyfd, POLLIN, 0}, {keyfd2, POLLIN, 0}};
         if (poll(p, 3, step) > 0) { input_read(); continue; }

@@ -292,7 +292,7 @@ static void open_input(void) {
             touchfd = fd; tx0 = ax.min; tx1 = ax.max; ty0 = ay.min; ty1 = ay.max;
             logs(" touch x "); logn(tx0); logs(".."); logn(tx1);
             logs(" y "); logn(ty0); logs(".."); logn(ty1);
-        } else if ((keyfd < 0 || keyfd2 < 0) && (has(name, "onkey") || has(name, "power"))) {
+        } else if ((keyfd < 0 || keyfd2 < 0) && (has(name, "onkey") || (board_pw4() && has(name, "power")))) {
             if (keyfd < 0) keyfd = fd; else keyfd2 = fd;
             logs(" power");
         } else {
@@ -373,7 +373,7 @@ __attribute__((noreturn, used)) void kmain(void) {
     int r = app_main();
     /* let the last update reach the panel before home draws over it (see
      * wait_last_update in ui/eink.h) */
-    if (marker && fbfd > 0) { u32 m[2] = {marker, 0}; sioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m); }
+    if (marker && fbfd > 0 && board_pw4()) { u32 m[2] = {marker, 0}; sioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m); }
     sys(S_EXIT, r, 0, 0, 0, 0, 0);
     for (;;) {}
 }
