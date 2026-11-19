@@ -1,0 +1,30 @@
+# Settings for the Dashboard app. Copy this to dashboard.conf in the linux
+# folder on the Kindle's drive and fill in what you want. Anything left out
+# or commented out is not shown. Lines starting with # are comments.
+
+# Calendars: the secret iCal (.ics) address of each calendar, one line each.
+# Google Calendar shows it in the calendar's settings as "Secret address in
+# iCal format". webcal:// addresses work too.
+#ics = https://calendar.google.com/calendar/ical/.../basic.ics
+#ics = https://example.com/another-calendar.ics
+
+# How many days of events to show, from 1 to 14.
+days = 3
+
+# Weather from Open-Meteo, which needs no account. place is only the name
+# shown on the page. units = imperial gives Fahrenheit and mph.
+#latitude = 51.51
+#longitude = -0.13
+#place = London
+units = metric
+
+# A server on your computer: run python3 tools/dashboard-server.py there and
+# copy the server and token lines it prints.
+#server = http://192.168.1.10:8765
+#token = paste-the-token-here
+
+# How often everything is fetched again while the Kindle is awake, in minutes.
+refresh_minutes = 15
+
+# yes shows the Dashboard instead of the night sky while the Kindle sleeps.
+sleep_screen = no
