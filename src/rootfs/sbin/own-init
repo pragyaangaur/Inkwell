@@ -96,7 +96,9 @@ bat_status() {
         if [ -f $U/dashboard.conf ]; then
             m=$(sed -n 's/^[[:space:]]*refresh_minutes[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' $U/dashboard.conf | head -n 1)
             [ "${m:-0}" -ge 1 ] 2>/dev/null || m=15
-            route -n | grep -q '^0\.0\.0\.0' && timeout 120 dashboard-fetch >/dev/null 2>&1
+            # Without a route yet (Wi-Fi still joining after boot), look
+            # again in a minute instead of waiting the whole interval.
+            if route -n | grep -q '^0\.0\.0\.0'; then timeout 120 dashboard-fetch >/dev/null 2>&1; else m=1; fi
         fi
         sleep $((m * 60))
     done
