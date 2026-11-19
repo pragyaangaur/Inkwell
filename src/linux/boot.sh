@@ -70,12 +70,17 @@ mounted $R/mnt/us || mount -o bind /mnt/base-us $R/mnt/us
 # USB with g_file_storage and has an Atheros Wi-Fi chip. The PW4 (kernel 4.1)
 # uses g_mass_storage with its own product id and a Broadcom chip, whose
 # driver needs firmware paths. Its firmware lists all of that in
-# platform_variables, which Amazon's own boot scripts read too.
-eval "$(grep -E '^(wifim_START_CMD_wifi|BOARD_ID_PRODUCT|BOARD_STALL)=' /etc/sysconfig/platform_variables 2>/dev/null)"
+# platform_variables, which Amazon's own boot scripts read too. Only the PW4
+# reads it, so the PW3 keeps loading exactly the drivers it always has. The
+# PW3's kernel has no device tree, and the PW4's names the i.MX6SLL.
+PW4=0
+tr '\0' ' ' < /proc/device-tree/compatible 2>/dev/null | grep -q imx6sll && PW4=1
+wifim_START_CMD_wifi= BOARD_ID_PRODUCT= BOARD_STALL=
+[ $PW4 = 1 ] && eval "$(grep -E '^(wifim_START_CMD_wifi|BOARD_ID_PRODUCT|BOARD_STALL)=' /etc/sysconfig/platform_variables 2>/dev/null)"
 USB_DRIVE=$(lsmod | awk '$1 == "g_file_storage" || $1 == "g_mass_storage" {print $1; exit}')
-echo "board: $(tr '\0' ' ' < /proc/device-tree/compatible 2>/dev/null || echo pw3), usb drive ${USB_DRIVE:-none}"
+echo "board: $([ $PW4 = 1 ] && echo pw4 || echo pw3), usb drive ${USB_DRIVE:-none}"
 usb_drive() {
-    if [ "$USB_DRIVE" = g_mass_storage ]; then
+    if [ "$USB_DRIVE" = g_mass_storage ] || [ $PW4 = 1 ]; then
         if [ "$BOARD_STALL" = 0 ]; then
             modprobe g_mass_storage file="" removable=1 idVendor=0x1949 idProduct=$BOARD_ID_PRODUCT stall=0
         else
