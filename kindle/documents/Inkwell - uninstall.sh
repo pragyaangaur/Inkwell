@@ -1,6 +1,6 @@
 #!/bin/sh
 # Name: Inkwell: uninstall
-# Author: Pietro Boccaletto
+# Author: Pragyaan Gaur
 # DontUseFBInk
 # Removes Inkwell's boot hook. The linux folder stays on the drive, and
 # deleting it over USB frees the space.

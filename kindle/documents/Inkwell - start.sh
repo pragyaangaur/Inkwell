@@ -1,6 +1,6 @@
 #!/bin/sh
 # Name: Inkwell: start
-# Author: Pietro Boccaletto
+# Author: Pragyaan Gaur
 # DontUseFBInk
 # Makes Inkwell the default system again and reboots into it.
 touch /mnt/us/linux/BOOT_OWN
