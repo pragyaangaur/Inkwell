@@ -36,6 +36,9 @@ static int helper(const char *arg) {
     if (pid == 0) {
         int null = open("/dev/null", O_RDWR);
         dup2(null, 0); dup2(null, 1); dup2(null, 2);
+        /* The screen and input stay with this app, and not with the
+         * server that ssh-wifi starts, which outlives it. */
+        for (int fd = 3; fd < 256; fd++) close(fd);
         execl(HELPER, "ssh-wifi", arg, (char *)0);
         _exit(127);
     }
