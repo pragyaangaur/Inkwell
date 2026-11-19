@@ -21,7 +21,9 @@ int main(int argc, char **argv) {
     /* already holding the power button counts too, so the wait can be short */
     unsigned char keys[KEY_MAX / 8 + 1];
     memset(keys, 0, sizeof keys);
-    if (keyfd >= 0 && ioctl(keyfd, EVIOCGKEY(sizeof keys), keys) >= 0 && (keys[KEY_POWER / 8] & (1 << (KEY_POWER % 8)))) return 1;
+    int kfd[2] = {keyfd, keyfd2}; /* the PW4 has two power key devices */
+    for (int k = 0; k < 2; k++)
+        if (kfd[k] >= 0 && ioctl(kfd[k], EVIOCGKEY(sizeof keys), keys) >= 0 && (keys[KEY_POWER / 8] & (1 << (KEY_POWER % 8)))) return 1;
     input_drain();
     struct timespec t0, t;
     clock_gettime(CLOCK_MONOTONIC, &t0);
