@@ -147,13 +147,15 @@ rc=$?
 echo "own-init exited $rc"
 
 # 10 to 12 are choices made on the home screen, so own Linux stays the default.
-# Anything else (13 is the crash guard) leaves the next boot stock. own-init
-# may already have re-armed the flag, since a home screen that crashes every
-# few seconds is still running at its 20 second check, so disarm it again.
+# Anything else leaves the next boot as the flag says. 13 is the crash guard:
+# own-init may already have re-armed the flag, since a home screen that
+# crashes every few seconds is still running at its 20 second check, so it
+# is disarmed again here. Other codes (own-init killed by a reboot typed in
+# the terminal, say) keep the flag, as they always have.
 case $rc in
 10) rearm; touch "$D/STOCK_ONCE" ;;
 11 | 12) rearm ;;
-*) [ -f "$D/BOOT_OWN" ] && mv -f "$D/BOOT_OWN" "$D/BOOT_OWN.trying" && echo "next boot is stock" ;;
+13) [ -f "$D/BOOT_OWN" ] && mv -f "$D/BOOT_OWN" "$D/BOOT_OWN.trying" && echo "next boot is stock" ;;
 esac
 sync
 release
