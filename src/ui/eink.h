@@ -125,7 +125,7 @@ static const char *app_name(void) {
  * reused the same few numbers. Starting from the pid keeps them apart (FBInk
  * does the same). */
 static unsigned next_marker(void) {
-    if (!marker) marker = ((unsigned)getpid() & 0xFFFFFu) << 10;
+    if (!marker && board_pw4()) marker = ((unsigned)getpid() & 0xFFFFFu) << 10; /* the PW3 counts from 1, as it always has */
     if (++marker == 0) marker = 1;
     return marker;
 }
@@ -168,7 +168,8 @@ static unsigned send_update(int x, int y, int w, int h, int wf, int full) {
             return mk;
         }
         int e = errno;
-        if (e == EINVAL || e == ENOTTY || e == EFAULT || e == EBADF || tries >= 10) {
+        /* the PW3 never needed retries, so it gives up at once as before */
+        if (!board_pw4() || e == EINVAL || e == ENOTTY || e == EFAULT || e == EBADF || tries >= 10) {
             fprintf(stderr, "%s: screen update %dx%d+%d+%d wf %d refused: %s\n", app_name(), w, h, x, y, wf, strerror(e));
             return 0;
         }
