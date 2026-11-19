@@ -31,6 +31,7 @@ static int save_end(FILE *f, const char *path, int durable) {
     if (!bad && durable) bad = fsync(fileno(f)) != 0;
     bad = (fclose(f) != 0) || bad;
     if (bad || rename(tmp, path)) { unlink(tmp); return -1; }
+    if (durable) sync(); /* the rename too, which lives in the FAT directory */
     return 0;
 }
 
