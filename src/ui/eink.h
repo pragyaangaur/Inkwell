@@ -500,6 +500,7 @@ typedef struct { int type, x, y, ux, uy; } event;
 static event evq[EVQ];
 static int evq_head, evq_tail;
 static int want_moves;
+static int coalesce_moves; /* opt in only for gestures that need the latest sample */
 
 /* Idle sleep. ui.h points idle_hook at a function that shows the sleep
  * screen and suspends, so every app sleeps after IDLE_SECS without a touch.
@@ -516,6 +517,10 @@ static void idle_check(void) {
 
 static void evq_push(event e) {
     last_input = time(0);
+    if (coalesce_moves && e.type == EV_MOVE && evq_head != evq_tail) {
+        int previous = (evq_tail + EVQ - 1) % EVQ;
+        if (evq[previous].type == EV_MOVE) { evq[previous] = e; return; }
+    }
     int next = (evq_tail + 1) % EVQ;
     if (next != evq_head) { evq[evq_tail] = e; evq_tail = next; }
 }

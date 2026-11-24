@@ -165,7 +165,10 @@ static void draw_app(const app *a) {
     text_center(&f_ui_bold, k < 1 ? 28 : 32, cx, a->r.y + (int)(186 * k) - (k < 1 ? 4 : 0), a->label, BLACK);
 }
 
+#include "frontlight.h"
+
 static int light_level(void) {
+    if (light_active) return light_percent(light_applied, light_maximum);
     int b = read_int(LIGHT_FILE("brightness")), m = read_int(LIGHT_FILE("max_brightness"));
     if (m <= 0 || b <= 0) return 0;
     /* the slider is quadratic, which spreads out the dim end where eyes are fussy */
@@ -184,6 +187,41 @@ static void draw_slider(void) {
     char buf[16];
     snprintf(buf, sizeof buf, "%d%%", pct);
     text_right(&f_ui_bold, 32, W - MARGIN, y - 22, buf, 0x30);
+}
+
+enum slider_phase { SLIDER_DOWN, SLIDER_MOVE, SLIDER_UP };
+
+/* The release refresh is not waited for, so a tap returns at once. The next
+ * slider frame waits for it before it changes the framebuffer under it. */
+static unsigned slider_pending;
+static long slider_pending_ms;
+
+static void redraw_slider(enum slider_phase phase) {
+    /* Past a second it has long finished (GC16 takes under 800 ms), and the
+     * driver may no longer know the marker, so it isn't waited for. */
+    if (slider_pending && mono_ms() - slider_pending_ms < 1000) {
+        unsigned m[2] = {slider_pending, 0};
+        ioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m);
+    }
+    slider_pending = 0;
+    draw_slider();
+    if (phase != SLIDER_UP) {
+        for (int y = slider_r.y; y < slider_r.y + slider_r.h; ++y)
+            for (int x = slider_r.x; x < slider_r.x + slider_r.w; ++x)
+                fb[y * PITCH + x] = dither(x, y, fb[y * PITCH + x]);
+    }
+    /* A2 needs a B&W source as well as a B&W target. GC16 enters that
+     * preview directly from grayscale; no blank or flashing frame is needed.
+     * Wait before changing the framebuffer for the next queued movement. */
+    if (phase == SLIDER_UP) {
+        last_mk = 0;
+        refresh(slider_r.x, slider_r.y, slider_r.w, slider_r.h, WF_GC16, 0, 0);
+        slider_pending = last_mk; /* 0 if the driver refused it */
+        slider_pending_ms = mono_ms();
+        return;
+    }
+    refresh(slider_r.x, slider_r.y, slider_r.w, slider_r.h,
+            phase == SLIDER_MOVE ? WF_A2 : WF_GC16, 0, 1);
 }
 
 static const char *const footers[] = {
@@ -224,16 +262,6 @@ static int run_app(const app *a) {
     return WIFEXITED(st) ? WEXITSTATUS(st) : 0;
 }
 
-static void set_light_from(int x) {
-    int m = read_int(LIGHT_FILE("max_brightness"));
-    if (m <= 0) return;
-    float f = (float)(x - slider_x0) / (slider_x1 - slider_x0);
-    f = f < 0 ? 0 : f > 1 ? 1 : f;
-    int b = (int)(f * f * m + 0.5f);
-    write_int(LIGHT_FILE("brightness"), b);
-    write_int("/mnt/us/linux/light", b); /* own-init restores it at boot */
-}
-
 int main(int argc, char **argv) {
     signal(SIGCHLD, SIG_DFL);
     if (fb_open() || fonts_load()) return 1;
@@ -244,7 +272,7 @@ int main(int argc, char **argv) {
     layout();
     draw_home(1);
     want_moves = 1; /* to follow an app being dragged */
-    int drag = -1, over = -1;
+    int drag = -1, over = -1, slider_dragging = 0, slider_previewed = 0;
     for (;;) {
         time_t now = time(0);
         event e = input_wait((60 - now % 60) * 1000);
@@ -255,8 +283,25 @@ int main(int argc, char **argv) {
             refresh(0, 0, W, RULE_Y - 20, WF_GL16, 0, 0);
             continue;
         }
-        if (e.type == EV_POWER) { sleep_now(); draw_home(1); continue; }
+        if (e.type == EV_POWER) {
+            if (slider_dragging) light_finish();
+            slider_dragging = coalesce_moves = 0;
+            sleep_now(); draw_home(1); continue;
+        }
         if (e.type == EV_MOVE) {
+            if (slider_dragging) {
+                input_read();
+                while (evq_head != evq_tail && evq[evq_head].type == EV_MOVE) {
+                    e = evq[evq_head];
+                    evq_head = (evq_head + 1) % EVQ;
+                }
+                int changed = light_from_x(e.x);
+                /* The black-and-white preview is drawn on the first move, so
+                 * a plain tap never waits for it. */
+                if (!slider_previewed) { redraw_slider(SLIDER_DOWN); slider_previewed = 1; }
+                else if (changed) redraw_slider(SLIDER_MOVE);
+                continue;
+            }
             int j = drag >= 0 ? app_at(e.x, e.y) : -1;
             if (j != over) {
                 if (over >= 0 && over != drag) { draw_app(&apps[over]); refresh(apps[over].r.x, apps[over].r.y, apps[over].r.w, apps[over].r.h, WF_GL16, 0, 0); }
@@ -267,7 +312,18 @@ int main(int argc, char **argv) {
         }
         if (e.type == EV_DOWN) {
             drag = over = -1;
-            if (hit(slider_r, e.x, e.y)) { set_light_from(e.x); draw_slider(); refresh(slider_r.x, slider_r.y, slider_r.w, slider_r.h, WF_A2, 0, 0); continue; }
+            /* A new down also cancels an unfinished gesture after idle sleep. */
+            if (slider_dragging) light_finish();
+            slider_dragging = coalesce_moves = 0;
+            if (hit(slider_r, e.x, e.y)) {
+                /* The light changing is the feedback for a touch. Nothing is
+                 * drawn until the finger moves or lifts. */
+                light_begin();
+                slider_dragging = coalesce_moves = 1;
+                slider_previewed = 0;
+                light_from_x(e.x);
+                continue;
+            }
             drag = app_at(e.x, e.y);
             for (int i = 0; i < napps; i++)
                 if (hit(apps[i].r, e.x, e.y)) {
@@ -278,10 +334,18 @@ int main(int argc, char **argv) {
             continue;
         }
         if (e.type != EV_TAP) continue;
+        if (slider_dragging) {
+            slider_dragging = coalesce_moves = 0;
+            light_from_x(e.ux);
+            light_finish();
+            redraw_slider(SLIDER_UP);
+            continue;
+        }
         if (hit(slider_r, e.x, e.y)) {
-            set_light_from(e.ux);
-            draw_slider();
-            refresh(slider_r.x, slider_r.y, slider_r.w, slider_r.h, WF_GL16, 0, 0);
+            light_begin();
+            light_from_x(e.ux);
+            light_finish();
+            redraw_slider(SLIDER_UP);
             continue;
         }
         /* lifted on another place, well away from where it landed: a move */
