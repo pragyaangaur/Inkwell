@@ -191,7 +191,19 @@ static void draw_slider(void) {
 
 enum slider_phase { SLIDER_DOWN, SLIDER_MOVE, SLIDER_UP };
 
+/* The release refresh is not waited for, so a tap returns at once. The next
+ * slider frame waits for it before it changes the framebuffer under it. */
+static unsigned slider_pending;
+static long slider_pending_ms;
+
 static void redraw_slider(enum slider_phase phase) {
+    /* Past a second it has long finished (GC16 takes under 800 ms), and the
+     * driver may no longer know the marker, so it isn't waited for. */
+    if (slider_pending && mono_ms() - slider_pending_ms < 1000) {
+        unsigned m[2] = {slider_pending, 0};
+        ioctl(fbfd, MXCFB_WAIT_FOR_UPDATE_COMPLETE, m);
+    }
+    slider_pending = 0;
     draw_slider();
     if (phase != SLIDER_UP) {
         for (int y = slider_r.y; y < slider_r.y + slider_r.h; ++y)
@@ -201,6 +213,13 @@ static void redraw_slider(enum slider_phase phase) {
     /* A2 needs a B&W source as well as a B&W target. GC16 enters that
      * preview directly from grayscale; no blank or flashing frame is needed.
      * Wait before changing the framebuffer for the next queued movement. */
+    if (phase == SLIDER_UP) {
+        last_mk = 0;
+        refresh(slider_r.x, slider_r.y, slider_r.w, slider_r.h, WF_GC16, 0, 0);
+        slider_pending = last_mk; /* 0 if the driver refused it */
+        slider_pending_ms = mono_ms();
+        return;
+    }
     refresh(slider_r.x, slider_r.y, slider_r.w, slider_r.h,
             phase == SLIDER_MOVE ? WF_A2 : WF_GC16, 0, 1);
 }
@@ -253,7 +272,7 @@ int main(int argc, char **argv) {
     layout();
     draw_home(1);
     want_moves = 1; /* to follow an app being dragged */
-    int drag = -1, over = -1, slider_dragging = 0;
+    int drag = -1, over = -1, slider_dragging = 0, slider_previewed = 0;
     for (;;) {
         time_t now = time(0);
         event e = input_wait((60 - now % 60) * 1000);
@@ -276,7 +295,11 @@ int main(int argc, char **argv) {
                     e = evq[evq_head];
                     evq_head = (evq_head + 1) % EVQ;
                 }
-                if (light_from_x(e.x)) redraw_slider(SLIDER_MOVE);
+                int changed = light_from_x(e.x);
+                /* The black-and-white preview is drawn on the first move, so
+                 * a plain tap never waits for it. */
+                if (!slider_previewed) { redraw_slider(SLIDER_DOWN); slider_previewed = 1; }
+                else if (changed) redraw_slider(SLIDER_MOVE);
                 continue;
             }
             int j = drag >= 0 ? app_at(e.x, e.y) : -1;
@@ -293,10 +316,12 @@ int main(int argc, char **argv) {
             if (slider_dragging) light_finish();
             slider_dragging = coalesce_moves = 0;
             if (hit(slider_r, e.x, e.y)) {
+                /* The light changing is the feedback for a touch. Nothing is
+                 * drawn until the finger moves or lifts. */
                 light_begin();
                 slider_dragging = coalesce_moves = 1;
+                slider_previewed = 0;
                 light_from_x(e.x);
-                redraw_slider(SLIDER_DOWN);
                 continue;
             }
             drag = app_at(e.x, e.y);

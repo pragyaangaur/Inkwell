@@ -107,7 +107,8 @@ int main(int argc, char **argv) {
     for (unsigned i = 0; i < sizeof levels / sizeof *levels; ++i) {
         level = levels[i]; sends = waits = 0;
         redraw_slider(SLIDER_DOWN);
-        check(sends == 1 && waits == 1 && waveform == (board_pw4() ? 4 : WF_GC16), "single fenced grayscale-to-B&W entry");
+        /* after the first round, entry also waits for the release before it */
+        check(sends == 1 && waits == (i ? 2 : 1) && waveform == (board_pw4() ? 4 : WF_GC16), "single fenced grayscale-to-B&W entry");
         check(monochrome && !blank, "entry draws content directly, without a white intermediate frame");
         check(full == (board_pw4() ? 1 : 0), "entry retains board-specific non-flashing mapping");
         sends = waits = 0; level = 100 - levels[i];
@@ -115,7 +116,8 @@ int main(int argc, char **argv) {
         check(sends == 1 && waits == 1 && waveform == (board_pw4() ? 6 : WF_A2) && !full, "fenced A2 drag after monochrome entry");
         sends = waits = 0;
         redraw_slider(SLIDER_UP);
-        check(sends == 1 && waits == 1 && waveform == (board_pw4() ? 4 : WF_GC16), "fenced grayscale release");
+        check(sends == 1 && waits == 0 && slider_pending == marker && waveform == (board_pw4() ? 4 : WF_GC16),
+              "grayscale release is not waited for, and is remembered for the next frame");
         check(full == (board_pw4() ? 1 : 0), "release does not request flashing GC16");
         memset(expected, 0xA5, bytes);
         fb = expected; draw_slider(); fb = live;
